@@ -47,6 +47,13 @@ const (
 	testUserHeaderName = "X-Web-User"
 )
 
+// Shared Portal test fixtures, reused across AppRegistration/Portal
+// reconciler tests.
+const (
+	testPortalHost  = "portal.example.com"
+	testServerImage = "example.com/panoptikum:test"
+)
+
 var _ = Describe("UserAuthentication Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (

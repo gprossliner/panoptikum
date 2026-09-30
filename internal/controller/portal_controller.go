@@ -29,6 +29,7 @@ import (
 	"github.com/gprossliner/xhdl"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -84,6 +85,7 @@ const configHashAnnotation = "panoptikum.dev/config-hash"
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile resolves Portal.spec.userAuthenticationRef, computes
 // status.appRegistrations from the AppRegistrations currently Accepted
@@ -138,8 +140,9 @@ func (r *PortalReconciler) reconcile(ctx xhdl.Context, req ctrl.Request) {
 			if r.Image != "" {
 				r.writeDeployment(ctx, &portal, hash)
 				r.writeService(ctx, &portal)
+				r.reconcileIngress(ctx, &portal)
 			} else {
-				log.V(1).Info("Skipping Deployment/Service: own image unresolved")
+				log.V(1).Info("Skipping Deployment/Service/Ingress: own image unresolved")
 			}
 			ready.Status = metav1.ConditionTrue
 			ready.Reason = "ConfigWritten"
@@ -459,6 +462,89 @@ func (r *PortalReconciler) writeService(ctx xhdl.Context, portal *panoptikumv1al
 	ctx.Throw(err)
 }
 
+// certManagerClusterIssuerAnnotation triggers cert-manager's ingress-shim to
+// issue a TLS certificate for the Ingress (see docs/ARCHITECTURE.md Portal
+// API resources, ingress.tls.clusterIssuer).
+const certManagerClusterIssuerAnnotation = "cert-manager.io/cluster-issuer"
+
+// reconcileIngress creates/updates or deletes portal's Ingress to match
+// spec.ingress.enabled - unlike the Secret/Deployment/Service, this one can
+// go away again while the Portal still exists, so a disable needs an
+// explicit delete rather than relying on ownerReferences GC.
+func (r *PortalReconciler) reconcileIngress(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal) {
+	if portal.Spec.Ingress == nil || !portal.Spec.Ingress.Enabled {
+		r.deleteIngress(ctx, portal)
+		return
+	}
+	r.writeIngress(ctx, portal)
+}
+
+func (r *PortalReconciler) writeIngress(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal) {
+	pathType := networkingv1.PathTypePrefix
+
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      portal.Name,
+			Namespace: portal.Namespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ingress, func() error {
+		if ingress.Annotations == nil {
+			ingress.Annotations = map[string]string{}
+		}
+
+		ingress.Spec.TLS = nil
+		delete(ingress.Annotations, certManagerClusterIssuerAnnotation)
+		if tls := portal.Spec.Ingress.TLS; tls != nil && tls.ClusterIssuer != "" {
+			ingress.Annotations[certManagerClusterIssuerAnnotation] = tls.ClusterIssuer
+			ingress.Spec.TLS = []networkingv1.IngressTLS{
+				{Hosts: []string{portal.Spec.Host}, SecretName: portal.Name + "-tls"},
+			}
+		}
+
+		ingress.Spec.IngressClassName = nil
+		if portal.Spec.Ingress.IngressClassName != "" {
+			ingress.Spec.IngressClassName = &portal.Spec.Ingress.IngressClassName
+		}
+
+		ingress.Spec.Rules = []networkingv1.IngressRule{
+			{
+				Host: portal.Spec.Host,
+				IngressRuleValue: networkingv1.IngressRuleValue{
+					HTTP: &networkingv1.HTTPIngressRuleValue{
+						Paths: []networkingv1.HTTPIngressPath{
+							{
+								Path:     "/",
+								PathType: &pathType,
+								Backend: networkingv1.IngressBackend{
+									Service: &networkingv1.IngressServiceBackend{
+										Name: portal.Name,
+										Port: networkingv1.ServiceBackendPort{Number: 80},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		return controllerutil.SetControllerReference(portal, ingress, r.Scheme)
+	})
+	ctx.Throw(err)
+}
+
+func (r *PortalReconciler) deleteIngress(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal) {
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      portal.Name,
+			Namespace: portal.Namespace,
+		},
+	}
+	ctx.Throw(client.IgnoreNotFound(r.Delete(ctx, ingress)))
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PortalReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &panoptikumv1alpha1.Portal{}, userAuthenticationRefIndex, func(obj client.Object) []string {
@@ -475,6 +561,7 @@ func (r *PortalReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Secret{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
+		Owns(&networkingv1.Ingress{}).
 		Named("portal").
 		Complete(r)
 }

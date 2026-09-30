@@ -54,7 +54,7 @@ var _ = Describe("AppRegistration Controller", func() {
 		portal := &panoptikumv1alpha1.Portal{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: panoptikumv1alpha1.PortalSpec{
-				Host:                  "portal.example.com",
+				Host:                  testPortalHost,
 				UserAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "some-user-authentication"},
 				AllowedAppNamespaces:  allowedAppNamespaces,
 			},

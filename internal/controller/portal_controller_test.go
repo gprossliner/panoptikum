@@ -24,6 +24,8 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -61,7 +63,7 @@ var _ = Describe("Portal Controller", func() {
 		portal := &panoptikumv1alpha1.Portal{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: panoptikumv1alpha1.PortalSpec{
-				Host:                  "portal.example.com",
+				Host:                  testPortalHost,
 				UserAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: userAuthName},
 			},
 		}
@@ -227,7 +229,7 @@ var _ = Describe("Portal Controller", func() {
 		var cfg portalconfig.Config
 		Expect(json.Unmarshal(secret.Data["config.json"], &cfg)).To(Succeed())
 
-		Expect(cfg.Portal.Host).To(Equal("portal.example.com"))
+		Expect(cfg.Portal.Host).To(Equal(testPortalHost))
 		Expect(cfg.UserAuthentication.ClientSecret).To(Equal("s3cr3t"))
 		Expect(cfg.UserAuthentication.CookieSecret).To(Equal("c00k1e"))
 
@@ -251,7 +253,7 @@ var _ = Describe("Portal Controller", func() {
 		controllerReconciler := &PortalReconciler{
 			Client: k8sClient,
 			Scheme: k8sClient.Scheme(),
-			Image:  "example.com/panoptikum:test",
+			Image:  testServerImage,
 		}
 		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 			NamespacedName: types.NamespacedName{Name: portalName, Namespace: namespace},
@@ -272,7 +274,7 @@ var _ = Describe("Portal Controller", func() {
 		Expect(deployment.Spec.Template.Annotations["panoptikum.dev/config-hash"]).To(Equal(configHash))
 		Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
 		container := deployment.Spec.Template.Spec.Containers[0]
-		Expect(container.Image).To(Equal("example.com/panoptikum:test"))
+		Expect(container.Image).To(Equal(testServerImage))
 		Expect(container.Command).To(Equal([]string{"/server"}))
 		Expect(container.Resources.Requests.Cpu().String()).To(Equal("10m"))
 		Expect(*deployment.Spec.Template.Spec.AutomountServiceAccountToken).To(BeFalse())
@@ -284,5 +286,101 @@ var _ = Describe("Portal Controller", func() {
 			"app.kubernetes.io/name":     "portal-server",
 			"app.kubernetes.io/instance": portalName,
 		}))
+	})
+
+	It("creates an Ingress with TLS when spec.ingress is enabled", func() {
+		const portalName = "p-7"
+		createUserAuthentication("p-userauth-7")
+
+		portal := &panoptikumv1alpha1.Portal{
+			ObjectMeta: metav1.ObjectMeta{Name: portalName, Namespace: namespace},
+			Spec: panoptikumv1alpha1.PortalSpec{
+				Host:                  testPortalHost,
+				UserAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "p-userauth-7"},
+				Ingress: &panoptikumv1alpha1.PortalIngress{
+					Enabled:          true,
+					IngressClassName: "traefik",
+					TLS:              &panoptikumv1alpha1.PortalIngressTLS{ClusterIssuer: "letsencrypt-production"},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, portal)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, portal)).To(Succeed()) })
+
+		controllerReconciler := &PortalReconciler{
+			Client: k8sClient,
+			Scheme: k8sClient.Scheme(),
+			Image:  testServerImage,
+		}
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: portalName, Namespace: namespace},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() {
+			Expect(k8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: portalName + "-config", Namespace: namespace}})).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: portalName, Namespace: namespace}})).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: portalName, Namespace: namespace}})).To(Succeed())
+		})
+
+		var ingress networkingv1.Ingress
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: portalName, Namespace: namespace}, &ingress)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, &ingress)).To(Succeed()) })
+
+		Expect(*ingress.Spec.IngressClassName).To(Equal("traefik"))
+		Expect(ingress.Annotations["cert-manager.io/cluster-issuer"]).To(Equal("letsencrypt-production"))
+		Expect(ingress.Spec.TLS).To(Equal([]networkingv1.IngressTLS{
+			{Hosts: []string{testPortalHost}, SecretName: portalName + "-tls"},
+		}))
+		Expect(ingress.Spec.Rules).To(HaveLen(1))
+		Expect(ingress.Spec.Rules[0].Host).To(Equal(testPortalHost))
+		backend := ingress.Spec.Rules[0].HTTP.Paths[0].Backend.Service
+		Expect(backend.Name).To(Equal(portalName))
+		Expect(backend.Port.Number).To(Equal(int32(80)))
+	})
+
+	It("deletes the Ingress once spec.ingress.enabled flips back to false", func() {
+		const portalName = "p-8"
+		createUserAuthentication("p-userauth-8")
+
+		portal := &panoptikumv1alpha1.Portal{
+			ObjectMeta: metav1.ObjectMeta{Name: portalName, Namespace: namespace},
+			Spec: panoptikumv1alpha1.PortalSpec{
+				Host:                  testPortalHost,
+				UserAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "p-userauth-8"},
+				Ingress:               &panoptikumv1alpha1.PortalIngress{Enabled: true},
+			},
+		}
+		Expect(k8sClient.Create(ctx, portal)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, portal)).To(Succeed()) })
+		DeferCleanup(func() {
+			Expect(k8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: portalName + "-config", Namespace: namespace}})).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: portalName, Namespace: namespace}})).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: portalName, Namespace: namespace}})).To(Succeed())
+		})
+
+		controllerReconciler := &PortalReconciler{
+			Client: k8sClient,
+			Scheme: k8sClient.Scheme(),
+			Image:  testServerImage,
+		}
+		reconcileP8 := func() {
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: portalName, Namespace: namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		reconcileP8()
+
+		var ingress networkingv1.Ingress
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: portalName, Namespace: namespace}, &ingress)).To(Succeed())
+
+		var toUpdate panoptikumv1alpha1.Portal
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: portalName, Namespace: namespace}, &toUpdate)).To(Succeed())
+		toUpdate.Spec.Ingress.Enabled = false
+		Expect(k8sClient.Update(ctx, &toUpdate)).To(Succeed())
+		reconcileP8()
+
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: portalName, Namespace: namespace}, &networkingv1.Ingress{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	})
 })
