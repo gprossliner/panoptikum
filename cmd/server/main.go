@@ -36,8 +36,8 @@ import (
 
 	"github.com/gprossliner/xhdl"
 
+	"github.com/gprossliner/panoptikum/internal/oidcauth"
 	"github.com/gprossliner/panoptikum/internal/portalconfig"
-	"github.com/gprossliner/panoptikum/internal/sessioncookie"
 )
 
 func main() {
@@ -59,21 +59,25 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	var cfg *portalconfig.Config
-	var cookieCodec *sessioncookie.Codec
+	var auth *oidcauth.Handler
 	err = xhdl.Run(func(ctx xhdl.Context) {
 		cfg = loadConfig(ctx, configPath)
-		cookieCodec = sessioncookie.NewCodec(ctx, cfg.UserAuthentication.CookieSecret)
+		// The browser only ever reaches the portal over HTTPS, terminated at
+		// the cluster's ingress (see docs/ARCHITECTURE.md Server > Reverse proxy).
+		redirectURL := "https://" + cfg.Portal.Host + "/callback"
+		auth = oidcauth.NewHandler(ctx, cfg.UserAuthentication, redirectURL)
 	})
 	if err != nil {
 		logger.Error("Failed to initialize", "config", configPath, "error", err)
 		os.Exit(1)
 	}
-	_ = cookieCodec // TODO: wire into OIDC login + reverse proxy
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	mux.HandleFunc("/login", auth.HandleLogin)
+	mux.HandleFunc("/callback", auth.HandleCallback)
 
 	srv := &http.Server{Addr: addr, Handler: withAccessLog(mux)}
 

@@ -21,17 +21,13 @@ limitations under the License.
 package sessioncookie
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"time"
 
 	"github.com/gprossliner/xhdl"
+
+	"github.com/gprossliner/panoptikum/internal/aeadvalue"
 )
 
 // Claims is the identity carried in the session cookie. Only $user is
@@ -43,35 +39,21 @@ type Claims struct {
 
 // Codec encrypts/decrypts session cookie values.
 type Codec struct {
-	gcm cipher.AEAD
+	aead *aeadvalue.Codec
 }
 
 // NewCodec derives an AES-256-GCM key from secret (an arbitrary-length
 // string, e.g. UserAuthentication's resolved cookieSecretRef value) via
 // SHA-256, so callers never need to worry about key length.
 func NewCodec(ctx xhdl.Context, secret string) *Codec {
-	key := sha256.Sum256([]byte(secret))
-
-	block, err := aes.NewCipher(key[:])
-	ctx.Throw(err)
-
-	gcm, err := cipher.NewGCM(block)
-	ctx.Throw(err)
-
-	return &Codec{gcm: gcm}
+	return &Codec{aead: aeadvalue.New(ctx, secret)}
 }
 
 // Encode encrypts claims into an opaque, URL-safe cookie value.
 func (c *Codec) Encode(ctx xhdl.Context, claims Claims) string {
 	plaintext, err := json.Marshal(claims)
 	ctx.Throw(err)
-
-	nonce := make([]byte, c.gcm.NonceSize())
-	_, err = io.ReadFull(rand.Reader, nonce)
-	ctx.Throw(err)
-
-	sealed := c.gcm.Seal(nonce, nonce, plaintext, nil)
-	return base64.RawURLEncoding.EncodeToString(sealed)
+	return c.aead.Seal(ctx, plaintext)
 }
 
 // Decode validates and decrypts a cookie value produced by Encode. maxAge
@@ -79,20 +61,10 @@ func (c *Codec) Encode(ctx xhdl.Context, claims Claims) string {
 // attribute, which is only a client-side hint, not a security boundary. A
 // maxAge of zero disables the freshness check.
 func (c *Codec) Decode(ctx xhdl.Context, value string, maxAge time.Duration) Claims {
-	sealed, err := base64.RawURLEncoding.DecodeString(value)
-	ctx.Throw(err)
-
-	nonceSize := c.gcm.NonceSize()
-	if len(sealed) < nonceSize {
-		ctx.Throw(errors.New("ciphertext too short"))
-	}
-	nonce, ciphertext := sealed[:nonceSize], sealed[nonceSize:]
-
-	plaintext, err := c.gcm.Open(nil, nonce, ciphertext, nil)
-	ctx.Throw(err)
+	plaintext := c.aead.Open(ctx, value)
 
 	var claims Claims
-	err = json.Unmarshal(plaintext, &claims)
+	err := json.Unmarshal(plaintext, &claims)
 	ctx.Throw(err)
 
 	if maxAge > 0 && time.Since(claims.IssuedAt) > maxAge {
