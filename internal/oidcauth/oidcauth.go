@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -95,11 +96,18 @@ func NewHandler(ctx xhdl.Context, cfg portalconfig.UserAuthenticationConfig, red
 	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
 	ctx.Throw(err)
 
+	// AuthStyleAutoDetect (the zero value) probes by trying params-in-body
+	// first; some providers (nanoidp included) reject that combination
+	// outright per RFC 6749 §2.3 rather than tolerating the probe, so
+	// force HTTP Basic explicitly instead of auto-detecting.
+	endpoint := provider.Endpoint()
+	endpoint.AuthStyle = oauth2.AuthStyleInHeader
+
 	return &Handler{
 		oauth2Config: oauth2.Config{
 			ClientID:     cfg.ClientID,
 			ClientSecret: cfg.ClientSecret,
-			Endpoint:     provider.Endpoint(),
+			Endpoint:     endpoint,
 			RedirectURL:  redirectURL,
 			Scopes:       cfg.Scopes,
 		},
@@ -140,6 +148,7 @@ func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, authURL, http.StatusFound)
 	})
 	if err != nil {
+		slog.ErrorContext(r.Context(), "oidc login failed", "error", err)
 		http.Error(w, "login failed", http.StatusInternalServerError)
 	}
 }
@@ -180,6 +189,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, claims.ReturnTo, http.StatusFound)
 	})
 	if err != nil {
+		slog.ErrorContext(r.Context(), "oidc callback failed", "error", err)
 		http.Error(w, "login callback failed", http.StatusBadRequest)
 	}
 }

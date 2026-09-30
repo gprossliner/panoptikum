@@ -12,3 +12,9 @@
 # Re-include Go module files
 !go.mod
 !go.sum
+
+# Re-include go:embed assets (internal/portalshell's shell.html) - excluded
+# by the blanket ** above like any other non-.go file, which breaks the
+# //go:embed directive at build time with "pattern shell.html: no matching
+# files found".
+!**/*.html

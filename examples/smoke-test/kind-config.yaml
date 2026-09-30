@@ -1,0 +1,23 @@
+# kind cluster config enabling the standard kind+ingress-nginx recipe
+# (https://kind.sigs.k8s.io/docs/user/ingress/): a control-plane node
+# labeled ingress-ready=true, and host ports 80/443 mapped onto it, for
+# ingress-nginx's own kind-provider manifest (hostNetwork-bound to those
+# ports) to bind to. See README.md for the full walkthrough.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: panoptikum-smoke-test
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
+  extraPortMappings:
+  - containerPort: 80
+    hostPort: 80
+    protocol: TCP
+  - containerPort: 443
+    hostPort: 443
+    protocol: TCP

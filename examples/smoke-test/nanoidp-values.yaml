@@ -1,0 +1,56 @@
+# Source values for nanoidp.yaml (the prerendered chart output committed
+# alongside this file - see docs/ARCHITECTURE.md "Smoke Testing"). Not
+# applied directly; kept here so nanoidp.yaml can be regenerated:
+#
+#   helm template nanoidp oci://ghcr.io/cdelmonte-zg/charts/nanoidp \
+#     --version 3.4.0 --values nanoidp-values.yaml > nanoidp.yaml
+#
+# Bump --version deliberately, not automatically, when picking up a newer
+# nanoidp release.
+
+image:
+  tag: "v3.4.0"
+
+ingress:
+  create: true
+  host: idp.127.0.0.1.nip.io
+  className: nginx
+  # No tls: - nanoidp is reached over plain HTTP by both the browser and
+  # the portal-server pod. OIDC doesn't require HTTPS for a dev issuer,
+  # and skipping it here avoids a second self-signed-cert-trust problem
+  # on top of the in-cluster-DNS one (see docs/ARCHITECTURE.md).
+
+# CLIENT_SECRET is consumed by configFiles.settings below via nanoidp's
+# own ${CLIENT_SECRET} placeholder expansion (at nanoidp's own container
+# startup, not by Helm) - references the same Secret+key panoptikum.yaml's
+# UserAuthentication.clientSecretRef uses, see kustomization.yaml's
+# secretGenerator / README.md.
+env:
+  - name: CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: panoptikum-demo-secrets
+        key: client-secret
+
+configFiles:
+  # alice/bob have no password: persona-login only, so the picker can
+  # demonstrate logging out and back in as a different user.
+  users: |
+    users:
+      alice:
+        email: "alice@example.org"
+        description: "Smoke-test user: alice"
+      bob:
+        email: "bob@example.org"
+        description: "Smoke-test user: bob"
+  settings: |
+    login:
+      mode: persona
+    oauth:
+      issuer: ${INGRESS_URL}
+      clients:
+        - client_id: "panoptikum-portal"
+          client_secret: ${CLIENT_SECRET}
+          description: "panoptikum portal-server"
+          redirect_uris:
+            - "https://portal.127.0.0.1.nip.io/_panoptikum/oidc-callback"

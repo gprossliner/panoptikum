@@ -1,0 +1,80 @@
+# All panoptikum-specific CRs for the smoke test, combined into one file
+# for a single at-a-glance read (see docs/ARCHITECTURE.md "Smoke Testing").
+# The Secret below carries real demo credentials - fine to commit here,
+# unlike config/samples/userauthentication-secret.yaml: this whole
+# namespace is a disposable local kind cluster, never a real deployment,
+# so there's nothing here worth keeping confidential.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: panoptikum-demo-secrets
+type: Opaque
+stringData:
+  # hex, deliberately - a base64-alphabet secret (+, /, =) hits an RFC 6749
+  # §2.3.1 interop ambiguity (percent-encode before Basic-auth-encoding, or
+  # not?) that nanoidp and go-oidc/oauth2 disagreed on; hex has no such
+  # characters, side-stepping the question entirely.
+  client-secret: 011451442df4b89a2209260012a63800ccc87ee9b668d8e9ad4b86ed1d50be6f
+  cookie-secret: WTsNbob+rq1p3KthbcFol7nyPLSvTJILUKJTC8p8Cq0=
+---
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: UserAuthentication
+metadata:
+  name: nanoidp
+spec:
+  issuerURL: http://idp.127.0.0.1.nip.io
+  clientID: panoptikum-portal
+  clientSecretRef:
+    name: panoptikum-demo-secrets
+    key: client-secret
+  cookieSecretRef:
+    name: panoptikum-demo-secrets
+    key: cookie-secret
+---
+# Vouches for the logged-in user to sample-app via a trusted header - the
+# sample app's nginx.conf (sample-app.yaml) echoes it back as plain text
+# so the README's walkthrough can see it arrive.
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: AppAuthentication
+metadata:
+  name: sample-app
+spec:
+  type: ProxyAuthentication
+  proxyAuthentication:
+    headers:
+      X-Forwarded-User: $user
+---
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: AppRegistration
+metadata:
+  name: sample-app
+spec:
+  portalRef:
+    name: portal
+  appAuthenticationRef:
+    name: sample-app
+  displayName: Sample App
+  routing:
+    pathPrefix: /sample/
+  sortOrder: 10
+  backend:
+    service:
+      name: sample-app
+      port: 80
+---
+# No ingress.tls - ingress-nginx's own default self-signed certificate
+# terminates HTTPS for any host that hits it without a matching TLS
+# Secret, which is all the portal-server's Secure session cookie needs
+# (Decision 7). Expect one browser warning to click through.
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: Portal
+metadata:
+  name: portal
+spec:
+  host: portal.127.0.0.1.nip.io
+  displayName: Smoke Test Portal
+  userAuthenticationRef:
+    name: nanoidp
+  ingress:
+    enabled: true
+    ingressClassName: nginx

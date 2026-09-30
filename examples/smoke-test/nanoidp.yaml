@@ -1,0 +1,190 @@
+# GENERATED - do not hand-edit. Prerendered `helm template` output of the
+# nanoidp chart (see nanoidp-values.yaml for the source values and the
+# exact regeneration command), committed as static YAML so the whole
+# example installs via one idempotent `kubectl apply -k`, with no `helm`
+# dependency at apply time (see docs/ARCHITECTURE.md "Smoke Testing").
+#
+# The panoptikum-demo-secrets Secret it references (CLIENT_SECRET env
+# var) is NOT part of this file - kustomization.yaml's secretGenerator
+# creates it, see README.md.
+---
+# Source: nanoidp/templates/config-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nanoidp-config
+  labels:
+    app.kubernetes.io/instance: nanoidp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: nanoidp
+    helm.sh/chart: nanoidp-3.4.0
+type: Opaque
+stringData:
+  # Written verbatim, not templated as structured values, so these read
+  # exactly like the users.yaml/settings.yaml files they become. No
+  # config_version key here: it must be a literal integer identical
+  # between both files, or the load stops with an explicit error.
+  users.yaml: |
+    users:
+      alice:
+        email: "alice@example.org"
+        description: "Smoke-test user: alice"
+      bob:
+        email: "bob@example.org"
+        description: "Smoke-test user: bob"
+    
+  settings.yaml: |
+    login:
+      mode: persona
+    oauth:
+      issuer: ${INGRESS_URL}
+      clients:
+        - client_id: "panoptikum-portal"
+          client_secret: ${CLIENT_SECRET}
+          description: "panoptikum portal-server"
+          redirect_uris:
+            - "https://portal.127.0.0.1.nip.io/_panoptikum/oidc-callback"
+---
+# Source: nanoidp/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nanoidp
+  labels:
+    app.kubernetes.io/instance: nanoidp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: nanoidp
+    helm.sh/chart: nanoidp-3.4.0
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: nanoidp
+    app.kubernetes.io/instance: nanoidp
+---
+# Source: nanoidp/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nanoidp
+  labels:
+    app.kubernetes.io/instance: nanoidp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: nanoidp
+    helm.sh/chart: nanoidp-3.4.0
+spec:
+  # Single replica only, nanoidp keeps authorization codes, refresh-token
+  # families, revocations and the audit log in-process with no
+  # coordination between instances. Not exposed as a value on purpose,
+  # more than one replica is not supported.
+  replicas: 1
+  strategy:
+    # A rollout must never run two pods at once, see above.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nanoidp
+      app.kubernetes.io/instance: nanoidp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nanoidp
+        app.kubernetes.io/instance: nanoidp
+      annotations:
+        # Rolls the pod on a configFiles.users/settings change, nanoidp
+        # only reads its config at boot. Not rendered with
+        # configFiles.existingSecret, the chart can't see content it
+        # doesn't own, see the chart README.
+        checksum/config: e51c5b39671a5a06b321d4e8a6b0655dfd3ab85e0e2a1ede0af6074a50e6ab57
+    spec:
+      containers:
+        - name: nanoidp
+          # No appVersion: chart version equals the nanoidp release it
+          # ships, so the tag defaults to the chart version, with the "v"
+          # prefix the published image tags carry (see nanoidp.imageTag).
+          image: "ghcr.io/cdelmonte-zg/nanoidp:v3.4.0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          
+          env:
+            - name: CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: client-secret
+                  name: panoptikum-demo-secrets
+            - name: INGRESS_HOST
+              value: idp.127.0.0.1.nip.io
+            - name: INGRESS_URL
+              value: http://idp.127.0.0.1.nip.io
+          volumeMounts:
+            # Read-only: nanoidp's config writer does lock-and-replace in
+            # this directory, so saving from the UI or MCP will fail here,
+            # by design, see the chart README.
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+          # Conservative defaults, not tuned against measured startup,
+          # nanoidp has no known history of a slow boot. First boot
+          # generates the RSA signing keypair, hence a startupProbe
+          # rather than a generous initialDelaySeconds on liveness.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 15
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+          resources:
+            {}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          secret:
+            secretName: nanoidp-config
+---
+# Source: nanoidp/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nanoidp
+  labels:
+    app.kubernetes.io/instance: nanoidp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: nanoidp
+    helm.sh/chart: nanoidp-3.4.0
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "idp.127.0.0.1.nip.io"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nanoidp
+                port:
+                  name: http

@@ -736,6 +736,229 @@ behind `(*oidcauth.Handler).Middleware` like every other proxied route.
 6. ~~Portal shell UI.~~ Done.
 7. Wire into `main.go`; manual smoke test against a real cluster.
 
+## Smoke Testing
+
+**Status: implemented and manually validated end to end (2026-09-30)** —
+a real browser logged in via nanoidp's persona picker, switched between
+two users, and saw the reverse proxy inject the correct
+`X-Forwarded-User` header for each. See "Validated outcome" below. A
+manual (not automated, not wired into any Makefile target or CI) example
+under `examples/smoke-test/` that exercises the whole stack end to end in
+a local `kind` cluster: real Ingress, a real (if minimal) backend app, a
+real OIDC login round trip, and a real session cookie — the thing
+tier-2/3 `envtest` structurally cannot prove, and true e2e (`test/e2e/`)
+has deliberately deferred. Not a replacement for either; a README-driven
+walkthrough for a human, and a living reference for anyone (including a
+future e2e test) that needs a complete, working example CR set.
+
+### Components
+
+- **`kind-config.yaml`**: the standard `kind` ingress recipe — a
+  control-plane node labeled `ingress-ready=true`, `extraPortMappings` for
+  host `80`/`443`. Then `ingress-nginx`'s own `kind`-provider manifest
+  (`deploy/static/provider/kind/deploy.yaml`, hostNetwork-bound to those
+  ports) is installed as-is, no fork needed.
+- **A sample backend app**: plain `nginx:alpine` + a `ConfigMap`-mounted
+  `nginx.conf`, no custom image build, no extra dependency. Rather than
+  serving static files (which would need to understand `pathPrefix`
+  sub-path serving itself), it uses nginx's `return` directive with
+  variable interpolation to echo back what it received as plain text —
+  `$request_uri` (proves no-path-rewriting) and `$http_x_forwarded_user`
+  (proves trusted-header injection actually reached the backend). Good
+  enough to validate the proxy; adding a real app (Headlamp, Grafana) is
+  a separate, optional step for whoever wants it, not this example's job.
+- **nanoidp** ([cdelmonte-zg/nanoidp](https://github.com/cdelmonte-zg/nanoidp))
+  as the test IdP. Installed from a **prerendered** static manifest
+  (`helm template ... > nanoidp.yaml`, committed), not a live `helm
+  install` — `helm template` is fully deterministic (chart version +
+  values in, static YAML out; verified against chart `3.4.0`), so this
+  loses nothing versus installing live while making the whole example one
+  idempotent `kubectl apply -k`, matching the sample-app/CRs, with no
+  `helm` dependency at apply time. `login.mode: persona` with **two**
+  users (`alice`, `bob`, no passwords — persona-only) so the walkthrough
+  can demonstrate logging out and back in as a different user, and one
+  registered client for the portal. The rendered Secret's
+  `settings.yaml` keeps nanoidp's own `${INGRESS_URL}`/`${CLIENT_SECRET}`
+  placeholders as literal text (expanded by nanoidp itself at its own
+  container startup, not by Helm) — safe to commit either way; the
+  `CLIENT_SECRET` env var it expands from is a `secretKeyRef` into the
+  same committed `panoptikum-demo-secrets` Secret described below, not a
+  separately-created one.
+- The four panoptikum CRs (`UserAuthentication`, `AppAuthentication`,
+  `AppRegistration`, `Portal`), all in one `panoptikum-demo` namespace —
+  this example doesn't need to also exercise cross-namespace binding
+  (Decision 2/8), that's already covered by envtest.
+- `UserAuthentication`'s `clientSecretRef`/`cookieSecretRef` (shared with
+  nanoidp's own registered client secret, one Secret/two keys) **is**
+  committed as plain YAML (`panoptikum.yaml`), unlike
+  `config/samples/userauthentication-secret.yaml` — this whole namespace
+  is a disposable local `kind` cluster nobody else ever reaches, not a
+  real deployment, so there's nothing here worth keeping confidential,
+  and committing it keeps the whole example a single `kubectl apply -k`
+  with no separate `kubectl create secret` step to remember.
+
+### The one real nuance: nanoidp needs two different "reachabilities"
+
+nanoidp's `authorization_endpoint` is opened directly by the **browser**
+(redirected there by `/_panoptikum/login`); its `token_endpoint`/`jwks_uri`
+are called **server-to-server** by the portal-server pod itself
+(`HandleCallback`'s `Exchange`/`Verify`). OpenID discovery derives all
+three from one `issuer` — there's no per-endpoint host override — so
+whatever hostname we choose has to be reachable from *both* places.
+
+Using `nip.io` (e.g. `idp.127.0.0.1.nip.io`, no `/etc/hosts` editing
+needed) resolves to `127.0.0.1` for **anyone who asks**, browser or pod —
+but `127.0.0.1` from inside the portal-server's own pod network namespace
+is that pod's own loopback, not the ingress controller. So the external
+hostname, while perfectly reachable from the browser (the whole point of
+mapping host ports 80/443), is **not** reachable from other pods without
+help.
+
+Fix: patch the `kube-system/coredns` `ConfigMap` with a `hosts` block
+mapping the chosen hostnames to the `ingress-nginx-controller` Service's
+ClusterIP (a well-known `kind`/`minikube` "hairpin" pattern for exactly
+this "in-cluster caller reaches a sibling's own public Ingress hostname"
+case) — a few concrete `kubectl` commands in the README, not a code
+change. Confirmed `go-oidc`'s `InsecureIssuerURLContext` does **not**
+substitute for this: it only lets discovery be *fetched* from a different
+URL than the issuer string it validates against (built for off-spec
+providers like Azure with a tenant-specific vs. common discovery path) —
+it doesn't change where `token_endpoint`/`jwks_uri` themselves point, so
+the portal-server pod would still need real network access to whatever
+host those say, which is the same hostname either way here.
+
+Sidestepped entirely for **nanoidp's own** ingress: no TLS block, plain
+`http://` (OIDC doesn't require `https` for a dev issuer, and `go-oidc`
+doesn't enforce it) — this avoids a *second* self-signed-cert-trust
+problem on top of the DNS one. The portal's own Ingress still needs
+`https` (`Secure` session cookie, Decision 7); `ingress-nginx`'s built-in
+default self-signed certificate covers that for free (no cert-manager
+needed for this example) — one browser warning to click through.
+
+### The devcontainer is yet another network layer — but mostly a free one
+
+Developing inside a VS Code devcontainer adds network namespaces on top of
+everything above, worth naming explicitly rather than silently assuming
+away. There are three distinct "does hostname X reach the right place"
+questions, and they don't all need the same answer:
+
+1. **The real browser (outside the devcontainer entirely) ↔ the
+   devcontainer.** This repo's `.devcontainer/devcontainer.json` uses the
+   `docker-in-docker` *feature* — a real nested `dockerd` whose "host"
+   networking *is* the devcontainer's own netns. `kind`'s
+   `extraPortMappings` (hostPort 80/443) therefore bind directly onto the
+   devcontainer's own loopback, same as running `docker run -p 80:80`
+   locally inside it. VS Code's normal port-forwarding (or the `$BROWSER`
+   tool) already bridges this — no extra script needed.
+2. **Tooling run from a devcontainer terminal (`curl`, a future `go test`)
+   ↔ the cluster.** Same reasoning: `curl https://idp.127.0.0.1.nip.io/`
+   from inside the devcontainer should reach `ingress-nginx` directly,
+   since that port is already bound on the devcontainer's own loopback.
+   Also already free.
+3. **The portal-server *pod*, inside the kind cluster's own pod-overlay
+   network ↔ the external hostname.** A third, separate netns beyond the
+   devcontainer/dind boundary, with its own CoreDNS resolution that kind's
+   hostPort mapping never reaches into. This is the one layer that
+   actually needs the CoreDNS `hosts` patch described above — nothing
+   about the devcontainer makes it worse or better, it's a pure
+   in-cluster-DNS problem either way.
+
+(This three-way split became clear by comparing against another project's
+devcontainer, `smegui`, which bridges a *different* gap with a `socat`
+relay + `postStartCommand`. That project's devcontainer is flat
+`docker-compose` siblings reached via `docker-outside-of-docker` — no
+nesting relationship between "the devcontainer" and "the IdP container" at
+all — so *both* #1 and #2 above are genuinely unsolved there without an
+explicit `forwardPorts` declaration and a bridge script, respectively. Our
+`docker-in-docker`-based setup means #1 and #2 come for free; only #3, one
+layer deeper than that project has to deal with at all, needs a fix here.)
+
+One option considered and rejected for #3: a pod-scoped fix
+(`spec.hostAliases`, a close Kubernetes-native analogue of a `socat`
+relay's intent — a static hostname→IP override, just for DNS instead of a
+TCP relay) instead of patching CoreDNS cluster-wide. Rejected because
+`PortalReconciler.writeDeployment` does
+`deployment.Spec.Template.Spec = corev1.PodSpec{...}` — a full overwrite —
+every reconcile, so a manually `kubectl patch`-ed `hostAliases` would be
+silently wiped on the next unrelated reconcile trigger, which is worse for
+a demo meant to be left running and poked at than cluster-wide-but-durable.
+
+### Resolved
+
+1. ~~`examples/` as a new top-level directory~~ — resolved: yes.
+2. ~~Directory/example name~~ — resolved: `examples/smoke-test/`.
+3. ~~CoreDNS patch vs. `hostAliases`~~ — resolved above: CoreDNS patch,
+   `hostAliases` doesn't survive `writeDeployment`'s full overwrite.
+   README-documented `kubectl` recipe (cluster-specific ClusterIP captured
+   into a shell variable at run time), not a committed placeholder file.
+4. Sample app: plain-text `nginx:alpine` echo confirmed sufficient — no
+   need to mirror the predecessor's real app set more closely.
+
+### Validated outcome (2026-09-30)
+
+A real browser (via the devcontainer's forwarded ports, see below) walked
+the entire flow: `https://portal.127.0.0.1.nip.io/` → auth middleware
+redirect → nanoidp persona picker → PKCE code exchange → session cookie →
+portal shell ("Logged in as: alice") → `/sample/` reverse-proxied through
+to `sample-app`, which echoed back `X-Forwarded-User: alice`. Logging out
+and back in as `bob` produced `X-Forwarded-User: bob` on the next
+request, confirming per-session header injection (not a stuck/cached
+value) and the user-switching story the two-persona setup exists to show.
+
+Getting there surfaced four real, pre-existing bugs — none specific to
+the smoke test itself, just never previously exercised because this was
+the first time the operator/portal-server had run as real Pods end to end:
+
+1. **`.dockerignore` excluded `shell.html` from the Docker build
+   context.** The blanket `**` + `!**/*.go` re-include pattern dropped
+   any non-`.go` file, breaking `//go:embed shell.html`
+   (`internal/portalshell`) with "pattern shell.html: no matching files
+   found" at `docker build` time. Fixed with a `!**/*.html` re-include line.
+2. **`config/manager/manager.yaml` still had the original kubebuilder-
+   scaffolded `command: [/manager]`**, never updated when this repo split
+   into two binaries (Decision 4/9: the Dockerfile builds `/operator` and
+   `/server`, with no fixed `ENTRYPOINT` — `command:` is supposed to pick
+   one). The operator Pod crash-looped with `exec: "/manager": stat
+   /manager: no such file or directory` until fixed to `/operator`.
+3. **`oauth2.Config`'s default `AuthStyleAutoDetect` guessed wrong.** Its
+   first-attempt probe sends client credentials in the token request
+   body; nanoidp (like a number of real providers) rejects that outright
+   for a client it expects HTTP Basic from, per RFC 6749 §2.3, rather
+   than tolerating the probe. Fixed by setting `endpoint.AuthStyle =
+   oauth2.AuthStyleInHeader` explicitly in `oidcauth.NewHandler` instead
+   of relying on auto-detection.
+4. **The demo client secret's `+`/`/`/`=` characters hit an RFC 6749
+   §2.3.1 interop ambiguity.** The spec requires percent-encoding the
+   client_id/secret before Basic-auth-encoding them; `golang.org/x/oauth2`
+   does this, but nanoidp compares the raw (non-percent-decoded) value,
+   so a base64-alphabet secret silently mismatched as soon as Basic auth
+   was used. Fixed by generating the demo secret with `openssl rand -hex
+   32` instead of `-base64 32` — hex has no characters affected by
+   percent-encoding either way, sidestepping the ambiguity entirely
+   rather than trying to resolve which side is "more correct".
+
+Also surfaced, as a general debuggability gap rather than a bug:
+`oidcauth.HandleLogin`/`HandleCallback` returned a generic client-facing
+error message but never logged the underlying `xhdl` error server-side,
+making failures here completely opaque from `kubectl logs`. Fixed by
+adding `slog.ErrorContext(r.Context(), ..., "error", err)` before each
+generic `http.Error` response — the client-facing message is unchanged
+(still generic, no internal detail leaked), only server-side visibility
+improved.
+
+One devcontainer-specific wrinkle not fully resolved by the "docker-in-
+docker means ports just work" reasoning above: on this run, VS Code chose
+to remap the forwarded ports (80→an arbitrary local port, same for 443)
+rather than forwarding them under their own numbers, which breaks
+`nip.io`-based hostnames used with no explicit port (nanoidp's fixed,
+no-port `authorization_endpoint`/`redirect_uri` values can't follow an
+arbitrary remap). Worked around for this session with a local TCP relay
+on the actual host machine (`socat`/`netsh portproxy`, listening on the
+host's literal 80/443, forwarding to whatever VS Code assigned); fixed
+more persistently by adding explicit `forwardPorts`/`portsAttributes` for
+80/443 to `devcontainer.json` (requesting the literal numbers up front
+rather than letting VS Code auto-assign on next rebuild).
+
 ## Security considerations
 
 - Secrets only via `Secret` references (Decision 3) — never inline in CRD
