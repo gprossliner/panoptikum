@@ -1,0 +1,13 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "go": true,
+        "/^make lint-fix$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^make test$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

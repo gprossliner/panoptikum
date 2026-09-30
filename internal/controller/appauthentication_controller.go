@@ -19,12 +19,18 @@ package controller
 import (
 	"context"
 
+	"github.com/gprossliner/xhdl"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	panoptikumv1alpha1 "github.com/gprossliner/panoptikum/api/v1alpha1"
+	"github.com/gprossliner/panoptikum/internal/apicall"
 )
 
 // AppAuthenticationReconciler reconciles a AppAuthentication object
@@ -37,27 +43,46 @@ type AppAuthenticationReconciler struct {
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=appauthentications/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=appauthentications/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the AppAuthentication object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/reconcile
+// Reconcile sets the Ready condition on AppAuthentication. It has no
+// outgoing references to resolve - the XValidation rules on
+// AppAuthenticationSpec already guarantee a structurally valid spec by the
+// time an object is persisted. The appRegistrations back-ref list is
+// populated once the AppRegistration reconciler exists (see
+// docs/ARCHITECTURE.md "Suggested build order").
 func (r *AppAuthenticationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	err := xhdl.RunContext(ctx, func(xc xhdl.Context) {
+		r.reconcile(xc, req)
+	})
+	return ctrl.Result{}, err
+}
 
-	// TODO(user): your logic here
+func (r *AppAuthenticationReconciler) reconcile(ctx xhdl.Context, req ctrl.Request) {
+	log := logf.FromContext(ctx)
 
-	return ctrl.Result{}, nil
+	var appAuth panoptikumv1alpha1.AppAuthentication
+	if !apicall.ApiTryGet(ctx, r.Client, req.NamespacedName, &appAuth) {
+		return
+	}
+
+	ready := metav1.Condition{
+		Type:               panoptikumv1alpha1.ConditionTypeReady,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: appAuth.GetGeneration(),
+		Reason:             "Reconciled",
+		Message:            "AppAuthentication is valid",
+	}
+
+	if apimeta.SetStatusCondition(&appAuth.Status.Conditions, ready) {
+		apicall.ApiUpdateStatus(ctx, r.Client, &appAuth)
+	}
+
+	log.V(1).Info("Reconciled AppAuthentication")
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AppAuthenticationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&panoptikumv1alpha1.AppAuthentication{}).
+		For(&panoptikumv1alpha1.AppAuthentication{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("appauthentication").
 		Complete(r)
 }

@@ -21,6 +21,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -54,14 +56,18 @@ var _ = Describe("AppAuthentication Controller", func() {
 						Name:      resourceName,
 						Namespace: resourceNamespace,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: panoptikumv1alpha1.AppAuthenticationSpec{
+						Type: panoptikumv1alpha1.AppAuthenticationTypeProxyAuthentication,
+						ProxyAuthentication: &panoptikumv1alpha1.ProxyAuthenticationConfig{
+							Headers: map[string]string{"X-Web-User": "$user"},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
 			resource := &panoptikumv1alpha1.AppAuthentication{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
@@ -69,7 +75,8 @@ var _ = Describe("AppAuthentication Controller", func() {
 			By("Cleanup the specific resource instance AppAuthentication")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
-		It("should successfully reconcile the resource", func() {
+
+		It("should set Ready=True", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &AppAuthenticationReconciler{
 				Client: k8sClient,
@@ -80,8 +87,49 @@ var _ = Describe("AppAuthentication Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			var updated panoptikumv1alpha1.AppAuthentication
+			Expect(k8sClient.Get(ctx, typeNamespacedName, &updated)).To(Succeed())
+
+			cond := apimeta.FindStatusCondition(updated.Status.Conditions, panoptikumv1alpha1.ConditionTypeReady)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.ObservedGeneration).To(Equal(updated.Generation))
+		})
+	})
+
+	Context("When validating the spec", func() {
+		const resourceNamespace = "default"
+
+		ctx := context.Background()
+
+		It("should reject a ProxyAuthentication type with no proxyAuthentication config", func() {
+			resource := &panoptikumv1alpha1.AppAuthentication{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "missing-proxy-authentication",
+					Namespace: resourceNamespace,
+				},
+				Spec: panoptikumv1alpha1.AppAuthenticationSpec{
+					Type: panoptikumv1alpha1.AppAuthenticationTypeProxyAuthentication,
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).NotTo(Succeed())
+		})
+
+		It("should reject a header template referencing anything other than $user", func() {
+			resource := &panoptikumv1alpha1.AppAuthentication{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "unsupported-template-variable",
+					Namespace: resourceNamespace,
+				},
+				Spec: panoptikumv1alpha1.AppAuthenticationSpec{
+					Type: panoptikumv1alpha1.AppAuthenticationTypeProxyAuthentication,
+					ProxyAuthentication: &panoptikumv1alpha1.ProxyAuthenticationConfig{
+						Headers: map[string]string{"X-Web-Groups": "$groups"},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).NotTo(Succeed())
 		})
 	})
 })

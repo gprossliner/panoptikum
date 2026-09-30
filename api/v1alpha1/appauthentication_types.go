@@ -21,42 +21,56 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// AppAuthenticationType selects the mechanism used to vouch for the
+// logged-in user to a backend app. Only one variant exists for now; more
+// can be added later without a new CRD (see docs/ARCHITECTURE.md
+// "AppAuthentication").
+// +kubebuilder:validation:Enum=ProxyAuthentication
+type AppAuthenticationType string
+
+const (
+	// AppAuthenticationTypeProxyAuthentication injects trusted headers into
+	// requests proxied to the backend app.
+	AppAuthenticationTypeProxyAuthentication AppAuthenticationType = "ProxyAuthentication"
+)
+
+// ProxyAuthenticationConfig configures trusted-header injection.
+type ProxyAuthenticationConfig struct {
+	// headers maps a header name to a template string identifying the claim
+	// to inject. Only the "$user" template variable is supported for now
+	// (see docs/ARCHITECTURE.md non-goals: no email/groups/other claims
+	// passthrough yet).
+	// +required
+	// +kubebuilder:validation:XValidation:rule="self.all(k, self[k] == '$user')",message="only the $user template variable is supported"
+	Headers map[string]string `json:"headers"`
+}
 
 // AppAuthenticationSpec defines the desired state of AppAuthentication
+// +kubebuilder:validation:XValidation:rule="self.type != 'ProxyAuthentication' || has(self.proxyAuthentication)",message="proxyAuthentication is required when type is ProxyAuthentication"
 type AppAuthenticationSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// type selects which authentication mechanism vouches for the user to the backend app.
+	// +required
+	Type AppAuthenticationType `json:"type"`
 
-	// foo is an example field of AppAuthentication. Edit appauthentication_types.go to remove/update
+	// proxyAuthentication configures header injection. Required when type is ProxyAuthentication.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	ProxyAuthentication *ProxyAuthenticationConfig `json:"proxyAuthentication,omitempty"`
 }
 
 // AppAuthenticationStatus defines the observed state of AppAuthentication.
 type AppAuthenticationStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the AppAuthentication resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// appRegistrations lists the AppRegistrations currently bound to this AppAuthentication.
+	// +listType=map
+	// +listMapKey=name
+	// +listMapKey=namespace
+	// +optional
+	AppRegistrations []NamespacedObjectReference `json:"appRegistrations,omitempty"`
 }
 
 // +kubebuilder:object:root=true
