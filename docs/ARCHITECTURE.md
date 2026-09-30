@@ -625,24 +625,32 @@ input is the mounted `internal/portalconfig.Config` JSON file.
 
 ### Session & OIDC
 
+- All of the portal-server's own routes live under a single reserved
+  root, `/_panoptikum/` — kept distinct from any app's own
+  `AppRegistration.spec.routing.pathPrefix` (validated via CEL at
+  admission time: a `pathPrefix` starting with `/_panoptikum/` is
+  rejected), so there's no ambiguity between "a route this binary
+  implements" and "a path proxied through to some app".
 - Session state is a small, encrypted/signed cookie (Decision 7) — no
   server-side store, any replica can validate any other's cookie. Only
   the claims actually needed for header templating are stored (just
   `$user` today, per the non-goals) — never full ID/refresh tokens.
-- `/login`: redirects to the IdP (authorization code + PKCE, `state`/
-  `nonce` in a short-lived handshake cookie), remembering the originally-
-  requested URL so `/callback` can redirect back to it afterwards — the
-  same role oauth2-proxy's `sign_in?rd=<url>` played in the predecessor.
-- `/callback`: exchanges the code, validates the ID token
+- `/_panoptikum/login`: redirects to the IdP (authorization code + PKCE,
+  `state`/`nonce` in a short-lived handshake cookie), remembering the
+  originally-requested URL so `/_panoptikum/oidc-callback` can redirect
+  back to it afterwards — the same role oauth2-proxy's
+  `sign_in?rd=<url>` played in the predecessor.
+- `/_panoptikum/oidc-callback`: exchanges the code, validates the ID token
   (`coreos/go-oidc` + `golang.org/x/oauth2`, not hand-rolled — see
   Security considerations), sets the session cookie, redirects back.
-- `/logout`: clears the session cookie.
+- `/_panoptikum/logout`: clears the session cookie.
 - An auth middleware gates every proxied route: valid session → attach
   the user to the request context; missing/invalid → redirect to
-  `/login?rd=<original-url>`. This collapses the predecessor's nginx
-  `auth_request` + `error_page 401` subrequest pattern (a separate
-  oauth2-proxy sidecar reached via an internal HTTP call per request)
-  into a single in-process check — no subrequest machinery needed once
+  `/_panoptikum/login?rd=<original-url>`. This collapses the
+  predecessor's nginx `auth_request` + `error_page 401` subrequest
+  pattern (a separate oauth2-proxy sidecar reached via an internal HTTP
+  call per request) into a single in-process check — no subrequest
+  machinery needed once
   OIDC and proxying live in the same binary.
 
 ### Reverse proxy

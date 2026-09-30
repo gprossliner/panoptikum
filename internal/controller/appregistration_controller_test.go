@@ -167,4 +167,19 @@ var _ = Describe("AppRegistration Controller", func() {
 		Expect(accepted.Status).To(Equal(metav1.ConditionUnknown))
 		Expect(accepted.Reason).To(Equal("PortalAllowedNamespacesInvalid"))
 	})
+
+	It("rejects a pathPrefix starting with the reserved /_panoptikum/ prefix", func() {
+		appReg := &panoptikumv1alpha1.AppRegistration{
+			ObjectMeta: metav1.ObjectMeta{Name: "ar-reserved", Namespace: namespace},
+			Spec: panoptikumv1alpha1.AppRegistrationSpec{
+				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-portal-5"},
+				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-appauth-5"},
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "/_panoptikum/login/"},
+				Backend: panoptikumv1alpha1.AppRegistrationBackend{
+					Service: panoptikumv1alpha1.ServiceBackend{Name: "ar-service-5", Port: 80},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, appReg)).NotTo(Succeed())
+	})
 })

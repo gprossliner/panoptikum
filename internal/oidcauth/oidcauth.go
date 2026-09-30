@@ -15,8 +15,9 @@ limitations under the License.
 */
 
 // Package oidcauth implements the portal-server's OIDC login flow
-// (/login, /callback) and owns the session cookie it produces (see
-// docs/ARCHITECTURE.md "Server (portal-server)" > "Session & OIDC").
+// (/_panoptikum/login, /_panoptikum/oidc-callback) and owns the session
+// cookie it produces (see docs/ARCHITECTURE.md "Server (portal-server)" >
+// "Session & OIDC").
 package oidcauth
 
 import (
@@ -40,11 +41,11 @@ import (
 
 const (
 	// HandshakeCookieName holds the short-lived, single-use OIDC handshake
-	// state between /login and /callback.
+	// state between /_panoptikum/login and /_panoptikum/oidc-callback.
 	HandshakeCookieName = "panoptikum_handshake"
 
 	// SessionCookieName holds the logged-in user's session, set by
-	// /callback and read by the auth middleware.
+	// /_panoptikum/oidc-callback and read by the auth middleware.
 	SessionCookieName = "panoptikum_session"
 
 	// HandshakeMaxAge bounds how long a user has to complete login at the
@@ -56,8 +57,8 @@ const (
 	SessionMaxAge = 8 * time.Hour
 )
 
-// handshakeClaims is the short-lived state carried between /login and
-// /callback - never exposed outside this package.
+// handshakeClaims is the short-lived state carried between /_panoptikum/login
+// and /_panoptikum/oidc-callback - never exposed outside this package.
 type handshakeClaims struct {
 	State        string    `json:"state"`
 	Nonce        string    `json:"nonce"`
@@ -75,8 +76,8 @@ type Handler struct {
 }
 
 // NewHandler discovers the OIDC provider at cfg.IssuerURL and builds a
-// Handler for it. redirectURL must be the externally-reachable /callback
-// URL (Portal.spec.host + "/callback").
+// Handler for it. redirectURL must be the externally-reachable
+// /_panoptikum/oidc-callback URL (Portal.spec.host + "/_panoptikum/oidc-callback").
 func NewHandler(ctx xhdl.Context, cfg portalconfig.UserAuthenticationConfig, redirectURL string) *Handler {
 	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
 	ctx.Throw(err)
@@ -97,8 +98,8 @@ func NewHandler(ctx xhdl.Context, cfg portalconfig.UserAuthenticationConfig, red
 
 // HandleLogin starts the OIDC authorization code + PKCE flow, remembering
 // the originally-requested URL (the "rd" query parameter, matching the
-// predecessor oauth2-proxy's sign_in?rd=<url> convention) so /callback can
-// redirect back to it.
+// predecessor oauth2-proxy's sign_in?rd=<url> convention) so
+// /_panoptikum/oidc-callback can redirect back to it.
 func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	err := xhdl.RunContext(r.Context(), func(ctx xhdl.Context) {
 		returnTo := r.URL.Query().Get("rd")
