@@ -386,6 +386,179 @@ the repo needs two separate `main` packages (`cmd/operator`, `cmd/server`,
 per Decision 4) rather than the single-binary layout most scaffolding
 assumes.
 
+## Reconciliation design
+
+Four reconcilers, one per CRD (`Portal`, `UserAuthentication`,
+`AppAuthentication`, `AppRegistration`). The cross-cutting rule that keeps
+them from stepping on each other:
+
+**Single writer per status: a reconciler only ever writes its own kind's
+`status`, never another kind's.** Concretely:
+
+- `AppRegistrationReconciler` fetches (read-only) its referenced `Portal`,
+  `AppAuthentication`, and backend `Service`, and sets **its own**
+  `ResolvedRefs`/`Accepted` conditions accordingly (`Accepted` requires
+  evaluating the target `Portal`'s `allowedAppNamespaces` regex, per
+  Decision 8 — read the Portal, don't write it).
+- `PortalReconciler` computes its own `status.appRegistrations[]` back-ref
+  list by **listing** `AppRegistration`s bound to it (`Accepted=True`) —
+  never by having `AppRegistrationReconciler` patch `Portal.status`
+  directly. Same pattern for `UserAuthentication.status.portals[]`
+  (written by `UserAuthenticationReconciler`, listing `Portal`s that
+  reference it) and `AppAuthentication.status.appRegistrations[]`.
+
+This avoids two different controllers racing to update the same object's
+status (which would otherwise need optimistic-concurrency retries), and
+matches Decision 5: the referenced resource always owns its own back-ref
+status.
+
+Listing "who references me" efficiently (and cheaply, inside a watch
+mapping function — see below) requires a cached field indexer per
+cross-reference field (`mgr.GetFieldIndexer().IndexField`), e.g. indexing
+`AppRegistration` on `spec.portalRef` and `spec.appAuthenticationRef`, and
+`Portal` on `spec.userAuthenticationRef`.
+
+### Propagating changes across kinds
+
+controller-runtime enqueues a reconcile for a kind's own `For(...)` watch
+on any `Create`/`Update`/`Delete` of that kind — including status-subresource-
+only updates — which would otherwise make a reconciler re-trigger itself
+every time it writes its own status. Each `For(...)` watch uses
+`predicate.GenerationChangedPredicate{}` to suppress that: a status-only
+update never changes `.metadata.generation`, so a reconciler's own status
+write does not requeue itself. (Caveat: setting `deletionTimestamp` also
+doesn't bump `generation` — irrelevant here since none of these four kinds
+use finalizers, per the "Consequences" note in Decision 4: cleanup of the
+generated `Secret`/`Deployment` is via `ownerReferences` GC, not a
+finalizer. If a finalizer is ever added to one of these kinds, its watch
+predicate must explicitly let deletion-timestamp changes through.)
+
+Reacting to a *different* kind changing (e.g. `Portal` needing to
+recompute its merged config when a bound `AppRegistration`'s `Accepted`
+condition flips) requires an explicit `Watches(...)` with a mapping
+function — this is never automatic across kinds, and here the predicate
+must *not* filter out status-only changes, since the very thing being
+watched for is a status condition flip:
+
+- `PortalReconciler`: `For(&Portal{})` (generation-changed only) +
+  `Watches(&AppRegistration{})` (map → owning `Portal`, via the
+  `spec.portalRef` indexer) + `Watches(&UserAuthentication{})` (map →
+  `Portal`s referencing it) + `Watches(&AppAuthentication{})` (map
+  transitively, via the `AppRegistration`s that use it, to their `Portal`)
+  + `Owns(&corev1.Secret{})`/`Owns(&appsv1.Deployment{})` for the
+  generated config `Secret` and portal-server `Deployment`.
+- `AppRegistrationReconciler`: `For(&AppRegistration{})` +
+  `Watches(&Portal{})` (so an `allowedAppNamespaces` edit re-evaluates
+  `Accepted` on every bound `AppRegistration`) + `Watches(&AppAuthentication{})`
+  (for `ResolvedRefs`) + `Watches(&corev1.Service{})` (backend existence,
+  for `ResolvedRefs`).
+- `UserAuthenticationReconciler`: `For(&UserAuthentication{})` +
+  `Watches(&corev1.Secret{})` (its `clientSecretRef`/`cookieSecretRef`).
+- `AppAuthenticationReconciler`: `For(&AppAuthentication{})` only — leaf
+  kind, no outgoing references.
+
+### `ObservedGeneration`
+
+Every condition written by any of the four reconcilers sets
+`ObservedGeneration` to the object's `.metadata.generation` at reconcile
+time. `apimeta.SetStatusCondition` (`k8s.io/apimachinery/pkg/api/meta`)
+does not derive this automatically — it must be set explicitly on the
+`metav1.Condition` passed in. This lets a user (or `kubectl`) tell whether
+a displayed condition reflects the latest spec: if
+`status.conditions[x].observedGeneration < metadata.generation`, the
+reconciler hasn't caught up yet (queue backlog, or stuck retrying an
+earlier generation).
+
+### Suggested build order
+
+1. `UserAuthentication` + `AppAuthentication` — leaf kinds, no
+   cross-references; get the basic `Ready`-condition reconciler shape
+   right first.
+2. `AppRegistration` — introduces refs, field indexers, and the
+   `ResolvedRefs`/`Accepted` pattern.
+3. `Portal` — ties everything together: cross-kind watches, the
+   `status.appRegistrations[]` back-ref list, and (a later iteration) the
+   merged-config `Secret` + `Deployment` from Decision 4.
+
+## Testing strategy
+
+Four tiers, deliberately scoped so each one tests only what the tiers
+below it structurally cannot — no tier re-covers what a cheaper tier
+already proves:
+
+1. **Pure unit tests** (`go test`, no Kubernetes involved). For logic
+   extracted into plain functions with no API-server dependency: the
+   `allowedAppNamespaces` regex anchoring/matching (Decision 8), header
+   template rendering (`AppAuthentication`), the config-merge/hash
+   computation (Decision 4). Fastest and most exhaustive tier
+   (table-driven); business logic should be pulled out of `Reconcile()`
+   into standalone functions specifically so it lands here.
+2. **`envtest` + direct `Reconcile()` calls** — a real `kube-apiserver` +
+   `etcd` (no kubelet, no built-in controllers), calling
+   `reconciler.Reconcile(ctx, req)` directly rather than running the
+   manager. Deterministic, no watch/timing flakiness. This is where the
+   bulk of controller tests live: exhaustive coverage of one reconciler's
+   own logic (ref-not-found, regex rejection, condition transitions,
+   `ResolvedRefs`/`Accepted` combinations).
+3. **`envtest` + the real manager running** (`mgr.Start(ctx)`, assertions
+   via `Eventually()` against objects created through the real client —
+   never calling `Reconcile` directly). Scope is deliberately narrow: one
+   test per edge in the cross-kind watch graph (see "Propagating changes
+   across kinds" above), proving only that a **status-only** mutation on
+   the watched kind reaches the dependent reconciler — e.g. that updating
+   `AppRegistration.status` (and nothing else) causes `PortalReconciler`
+   to run. That's the one property tier 2 cannot prove: a missing
+   `Watches(...)`, a wrong field-indexer key, or an overly-broad predicate
+   would break propagation silently without tier 2 ever noticing. Bounded
+   by the number of watch edges, not by business-logic scenarios — the
+   exhaustive condition/reason matrix stays in tier 2.
+4. **True e2e** ([test/e2e/e2e_test.go](../test/e2e/e2e_test.go)): real
+   image, dedicated `kind` cluster, deployed via kustomize, driven via
+   `kubectl`. Catches what `envtest` structurally can't (RBAC gaps, image
+   build issues, real container startup/probes, webhook TLS via
+   cert-manager). Deferred until there's an actually deployable slice of
+   the system to smoke-test — not useful yet while the CRDs/controllers
+   are still placeholders.
+
+## Error handling in reconcilers
+
+Reconciler bodies are long chains of sequential, dependent lookups
+(`Portal` → `UserAuthentication` → `Secret`; `AppRegistration` → `Portal` +
+`AppAuthentication` + backend `Service`), which is exactly the shape where
+repeating `if err != nil { return ctrl.Result{}, err }` after every client
+call adds the most noise for the least value. Reconcilers use
+[`github.com/gprossliner/xhdl`](https://github.com/gprossliner/xhdl) —
+panic/recover-based structured error handling — to avoid that boilerplate:
+
+```go
+func (r *PortalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, err error) {
+	err = xhdl.RunContext(ctx, func(xc xhdl.Context) {
+		result = r.reconcile(xc, req)
+	})
+	return
+}
+```
+
+with the actual logic taking `xhdl.Context` and calling `xc.Throw(err)`
+after client calls instead of an explicit `if err != nil` check.
+`xhdl.Context` embeds `context.Context` and `RunContext` wraps the
+incoming one rather than starting fresh, so values/deadline/cancellation
+(e.g. `logf.FromContext(ctx)`) still work unchanged after wrapping.
+
+Rules for using it consistently:
+
+- The `xhdl.RunContext` wrap must be at the very top of every
+  `Reconcile` — a `Throw` deeper in the call stack with no enclosing
+  `RunContext` panics uncaught (controller-runtime's own crash recovery
+  keeps this from taking down the whole manager, but that Reconcile
+  invocation won't return a clean `ctrl.Result`/`error`).
+- `Throw` does not replace judgment calls that aren't really failures —
+  e.g. `apierrors.IsNotFound` on a `Get` is still handled explicitly
+  (usually "return, nothing to do") before falling through to
+  `xc.Throw(err)` for genuine failures.
+- Invisible to the testing strategy above: `Reconcile()` still returns the
+  normal `(ctrl.Result, error)` signature, so tiers 2/3 need no changes.
+
 ## Security considerations
 
 - Secrets only via `Secret` references (Decision 3) — never inline in CRD
