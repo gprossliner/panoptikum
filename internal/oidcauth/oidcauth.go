@@ -47,10 +47,11 @@ const (
 	// CEL, to never start with this - see AppRegistrationRouting.PathPrefix).
 	ReservedPrefix = "/_panoptikum/"
 
-	// LoginPath and CallbackPath are where HandleLogin/HandleCallback are
-	// meant to be mounted.
+	// LoginPath, CallbackPath and LogoutPath are where
+	// HandleLogin/HandleCallback/HandleLogout are meant to be mounted.
 	LoginPath    = ReservedPrefix + "login"
 	CallbackPath = ReservedPrefix + "oidc-callback"
+	LogoutPath   = ReservedPrefix + "logout"
 
 	// HandshakeCookieName holds the short-lived, single-use OIDC handshake
 	// state between /_panoptikum/login and /_panoptikum/oidc-callback.
@@ -181,6 +182,14 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "login callback failed", http.StatusBadRequest)
 	}
+}
+
+// HandleLogout clears the session cookie and redirects to the portal root.
+// No RP-initiated logout at the IdP (non-goal, see docs/ARCHITECTURE.md) -
+// this only ends the portal's own session.
+func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	setCookie(w, SessionCookieName, "", -time.Second)
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (h *Handler) readHandshake(ctx xhdl.Context, r *http.Request) handshakeClaims {

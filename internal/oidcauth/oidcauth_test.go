@@ -116,6 +116,32 @@ func newTestSessionCodec(t *testing.T) *sessioncookie.Codec {
 	return codec
 }
 
+func TestHandleLogoutClearsSessionCookieAndRedirects(t *testing.T) {
+	h := &Handler{sessionCodec: newTestSessionCodec(t)}
+
+	req := httptest.NewRequest(http.MethodGet, LogoutPath, nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "some-session-value"})
+	rec := httptest.NewRecorder()
+	h.HandleLogout(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/" {
+		t.Errorf("Location = %q, want %q", loc, "/")
+	}
+
+	cleared := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("HandleLogout did not clear the session cookie")
+	}
+}
+
 func TestMiddlewareRedirectsWithoutSessionCookie(t *testing.T) {
 	h := &Handler{sessionCodec: newTestSessionCodec(t)}
 

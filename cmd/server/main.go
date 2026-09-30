@@ -108,6 +108,7 @@ func newMux(cfg *portalconfig.Config, auth *oidcauth.Handler) (*http.ServeMux, e
 	})
 	mux.HandleFunc(oidcauth.LoginPath, auth.HandleLogin)
 	mux.HandleFunc(oidcauth.CallbackPath, auth.HandleCallback)
+	mux.HandleFunc(oidcauth.LogoutPath, auth.HandleLogout)
 
 	for _, app := range cfg.Apps {
 		proxy, err := appproxy.New(app)

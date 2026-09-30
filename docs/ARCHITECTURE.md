@@ -717,7 +717,7 @@ instead of a separate client-side fetch.
 3. ~~Auth middleware.~~ Done.
 4. ~~Reverse proxy per app (exact-URI passthrough, trailing-slash redirect,
    header injection, WebSocket passthrough).~~ Done.
-5. `/logout`.
+5. ~~`/logout`.~~ Done.
 6. Portal shell UI.
 7. Wire into `main.go`; manual smoke test against a real cluster.
 
