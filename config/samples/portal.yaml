@@ -1,0 +1,17 @@
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: Portal
+metadata:
+  labels:
+    app.kubernetes.io/name: panoptikum
+    app.kubernetes.io/managed-by: kustomize
+  name: portal-sample
+spec:
+  host: portal.example.com
+  displayName: Management Portal
+  customization:
+    logoURL: https://example.com/logo.svg
+    backgroundColor: "#303030"
+    accentColor: "#4f8cff"
+  userAuthenticationRef:
+    name: userauthentication-sample
+  allowedAppNamespaces: ".+"

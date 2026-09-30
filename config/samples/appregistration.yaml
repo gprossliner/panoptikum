@@ -1,0 +1,24 @@
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: AppRegistration
+metadata:
+  labels:
+    app.kubernetes.io/name: panoptikum
+    app.kubernetes.io/managed-by: kustomize
+  name: appregistration-sample
+spec:
+  portalRef:
+    name: portal-sample
+  appAuthenticationRef:
+    name: appauthentication-sample
+  displayName: Sample App
+  routing:
+    pathPrefix: /sample/
+  sortOrder: 10
+  backend:
+    service:
+      # the "kubernetes" Service always exists in any cluster, used here
+      # purely so ResolvedRefs/the merged config resolve without deploying
+      # an extra sample workload
+      name: kubernetes
+      namespace: default
+      port: 443

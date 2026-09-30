@@ -1,0 +1,16 @@
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: UserAuthentication
+metadata:
+  labels:
+    app.kubernetes.io/name: panoptikum
+    app.kubernetes.io/managed-by: kustomize
+  name: userauthentication-sample
+spec:
+  issuerURL: https://keycloak.example.com/realms/example
+  clientID: management-portal
+  clientSecretRef:
+    name: userauthentication-sample-secret
+    key: client-secret
+  cookieSecretRef:
+    name: userauthentication-sample-secret
+    key: cookie-secret
