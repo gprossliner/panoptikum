@@ -69,7 +69,7 @@ var _ = Describe("AppRegistration Controller", func() {
 			Spec: panoptikumv1alpha1.AppAuthenticationSpec{
 				Type: panoptikumv1alpha1.AppAuthenticationTypeProxyAuthentication,
 				ProxyAuthentication: &panoptikumv1alpha1.ProxyAuthenticationConfig{
-					Headers: map[string]string{"X-Web-User": "$user"},
+					Headers: map[string]string{testUserHeaderName: userHeaderTemplate},
 				},
 			},
 		}

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,7 +29,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	panoptikumv1alpha1 "github.com/gprossliner/panoptikum/api/v1alpha1"
+	"github.com/gprossliner/panoptikum/internal/portalconfig"
 )
+
+// testConditionReason is a placeholder Reason/Message used when directly
+// setting a condition that's normally computed by another reconciler.
+const testConditionReason = "Test"
 
 var _ = Describe("Portal Controller", func() {
 	const namespace = "default"
@@ -92,6 +98,20 @@ var _ = Describe("Portal Controller", func() {
 		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, userAuth)).To(Succeed()) })
 	}
 
+	createAppAuthentication := func(name string) {
+		appAuth := &panoptikumv1alpha1.AppAuthentication{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Spec: panoptikumv1alpha1.AppAuthenticationSpec{
+				Type: panoptikumv1alpha1.AppAuthenticationTypeProxyAuthentication,
+				ProxyAuthentication: &panoptikumv1alpha1.ProxyAuthenticationConfig{
+					Headers: map[string]string{testUserHeaderName: userHeaderTemplate},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, appAuth)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, appAuth)).To(Succeed()) })
+	}
+
 	// createAppRegistration creates an AppRegistration referencing portalName
 	// and directly sets its Accepted condition, standing in for what
 	// AppRegistrationReconciler would normally compute.
@@ -117,8 +137,8 @@ var _ = Describe("Portal Controller", func() {
 		apimeta.SetStatusCondition(&appReg.Status.Conditions, metav1.Condition{
 			Type:    panoptikumv1alpha1.ConditionTypeAccepted,
 			Status:  status,
-			Reason:  "Test",
-			Message: "Test",
+			Reason:  testConditionReason,
+			Message: testConditionReason,
 		})
 		Expect(k8sClient.Status().Update(ctx, appReg)).To(Succeed())
 	}
@@ -166,5 +186,59 @@ var _ = Describe("Portal Controller", func() {
 			names[i] = ref.Name
 		}
 		Expect(names).To(Equal([]string{"p-3-app-a", "p-3-app-b"}))
+	})
+
+	It("writes the merged config Secret with a bound, fully-resolved app", func() {
+		createUserAuthentication("p-userauth-5")
+		createPortal("p-5", "p-userauth-5")
+		createAppAuthentication("p-5-appauth")
+
+		appReg := &panoptikumv1alpha1.AppRegistration{
+			ObjectMeta: metav1.ObjectMeta{Name: "p-5-app", Namespace: namespace},
+			Spec: panoptikumv1alpha1.AppRegistrationSpec{
+				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: "p-5"},
+				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "p-5-appauth"},
+				DisplayName:          "Grafana",
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "/grafana/"},
+				SortOrder:            10,
+				Backend: panoptikumv1alpha1.AppRegistrationBackend{
+					Service: panoptikumv1alpha1.ServiceBackend{Name: "grafana", Port: 80},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, appReg)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, appReg)).To(Succeed()) })
+
+		apimeta.SetStatusCondition(&appReg.Status.Conditions, metav1.Condition{
+			Type:    panoptikumv1alpha1.ConditionTypeAccepted,
+			Status:  metav1.ConditionTrue,
+			Reason:  testConditionReason,
+			Message: testConditionReason,
+		})
+		Expect(k8sClient.Status().Update(ctx, appReg)).To(Succeed())
+
+		reconcilePortal("p-5")
+
+		var secret corev1.Secret
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "p-5-config", Namespace: namespace}, &secret)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, &secret)).To(Succeed()) })
+
+		var cfg portalconfig.Config
+		Expect(json.Unmarshal(secret.Data["config.json"], &cfg)).To(Succeed())
+
+		Expect(cfg.Portal.Host).To(Equal("portal.example.com"))
+		Expect(cfg.UserAuthentication.ClientSecret).To(Equal("s3cr3t"))
+		Expect(cfg.UserAuthentication.CookieSecret).To(Equal("c00k1e"))
+
+		Expect(cfg.Apps).To(HaveLen(1))
+		app := cfg.Apps[0]
+		Expect(app.DisplayName).To(Equal("Grafana"))
+		Expect(app.PathPrefix).To(Equal("/grafana/"))
+		Expect(app.BackendURL).To(Equal("http://grafana." + namespace + ".svc.cluster.local:80"))
+		Expect(app.Authorization.Type).To(Equal(portalconfig.AppAuthorizationTypeProxyAuthentication))
+		Expect(app.Authorization.ProxyAuthentication).NotTo(BeNil())
+		Expect(app.Authorization.ProxyAuthentication.Headers).To(Equal(map[string]string{testUserHeaderName: userHeaderTemplate}))
+
+		Expect(secret.Annotations).To(HaveKey("panoptikum.dev/config-hash"))
 	})
 })

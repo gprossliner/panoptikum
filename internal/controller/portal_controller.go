@@ -19,11 +19,15 @@ package controller
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"slices"
 
 	"github.com/gprossliner/xhdl"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,6 +35,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -38,6 +43,7 @@ import (
 
 	panoptikumv1alpha1 "github.com/gprossliner/panoptikum/api/v1alpha1"
 	"github.com/gprossliner/panoptikum/internal/apicall"
+	"github.com/gprossliner/panoptikum/internal/portalconfig"
 )
 
 // PortalReconciler reconciles a Portal object
@@ -51,17 +57,29 @@ type PortalReconciler struct {
 // reference (own namespace when the ref omits one).
 const userAuthenticationRefIndex = "spec.userAuthenticationRef"
 
+// configSecretDataKey is the key under which the merged portalconfig.Config
+// JSON document is stored in the generated Secret's Data.
+const configSecretDataKey = "config.json"
+
+// configHashAnnotation records the sha256 of the last-written config JSON,
+// so a future Deployment rollout (Decision 4) can detect whether it needs
+// to restart pods without re-marshaling/re-hashing the config itself.
+const configHashAnnotation = "panoptikum.dev/config-hash"
+
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=portals,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=portals/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=portals/finalizers,verbs=update
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=userauthentications,verbs=get;list;watch
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=appregistrations,verbs=get;list;watch
+// +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=appauthentications,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 
-// Reconcile resolves Portal.spec.userAuthenticationRef and computes
+// Reconcile resolves Portal.spec.userAuthenticationRef, computes
 // status.appRegistrations from the AppRegistrations currently Accepted
-// against this Portal (see docs/ARCHITECTURE.md "Reconciliation design").
-// Ready currently only reflects ResolvedRefs; it will also reflect the
-// generated config Secret/Deployment once Decision 4 is implemented.
+// against this Portal, and writes the merged portalconfig.Config document
+// into a generated Secret (see docs/ARCHITECTURE.md Decision 4 and
+// "Reconciliation design"). The generated Deployment/rollout from Decision
+// 4 is not implemented yet.
 func (r *PortalReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	err := xhdl.RunContext(ctx, func(xc xhdl.Context) {
 		r.reconcile(xc, req)
@@ -77,7 +95,7 @@ func (r *PortalReconciler) reconcile(ctx xhdl.Context, req ctrl.Request) {
 		return
 	}
 
-	_, userAuthFound := r.getUserAuthentication(ctx, portal.Namespace, portal.Spec.UserAuthenticationRef)
+	userAuth, userAuthFound := getUserAuthentication(ctx, r.Client, portal.Namespace, portal.Spec.UserAuthenticationRef)
 
 	resolvedRefs := metav1.Condition{
 		Type:               panoptikumv1alpha1.ConditionTypeResolvedRefs,
@@ -92,20 +110,36 @@ func (r *PortalReconciler) reconcile(ctx xhdl.Context, req ctrl.Request) {
 		resolvedRefs.Message = fmt.Sprintf("UserAuthentication %s not found", refString(portal.Namespace, portal.Spec.UserAuthenticationRef))
 	}
 
+	bound := r.boundAppRegistrations(ctx, &portal)
+
 	ready := metav1.Condition{
 		Type:               panoptikumv1alpha1.ConditionTypeReady,
-		Status:             resolvedRefs.Status,
 		ObservedGeneration: portal.GetGeneration(),
-		Reason:             resolvedRefs.Reason,
-		Message:            resolvedRefs.Message,
+	}
+	switch {
+	case !userAuthFound:
+		ready.Status = metav1.ConditionFalse
+		ready.Reason = resolvedRefs.Reason
+		ready.Message = resolvedRefs.Message
+	default:
+		if cfg, ok := r.buildConfig(ctx, &portal, userAuth, bound); ok {
+			r.writeConfigSecret(ctx, &portal, cfg)
+			ready.Status = metav1.ConditionTrue
+			ready.Reason = "ConfigWritten"
+			ready.Message = "merged config Secret written"
+		} else {
+			ready.Status = metav1.ConditionFalse
+			ready.Reason = "UserAuthenticationSecretUnresolved"
+			ready.Message = "userAuthenticationRef's clientSecretRef/cookieSecretRef could not be resolved"
+		}
 	}
 
 	changed := apimeta.SetStatusCondition(&portal.Status.Conditions, resolvedRefs)
 	changed = apimeta.SetStatusCondition(&portal.Status.Conditions, ready) || changed
 
-	boundAppRegistrations := r.boundAppRegistrations(ctx, &portal)
-	if !reflect.DeepEqual(portal.Status.AppRegistrations, boundAppRegistrations) {
-		portal.Status.AppRegistrations = boundAppRegistrations
+	appRegistrations := appRegistrationRefs(bound)
+	if !reflect.DeepEqual(portal.Status.AppRegistrations, appRegistrations) {
+		portal.Status.AppRegistrations = appRegistrations
 		changed = true
 	}
 
@@ -113,27 +147,19 @@ func (r *PortalReconciler) reconcile(ctx xhdl.Context, req ctrl.Request) {
 		apicall.ApiUpdateStatus(ctx, r.Client, &portal)
 	}
 
-	log.V(1).Info("Reconciled Portal", "resolvedRefs", resolvedRefs.Status, "appRegistrations", len(boundAppRegistrations))
-}
-
-func (r *PortalReconciler) getUserAuthentication(ctx xhdl.Context, ownNamespace string, ref panoptikumv1alpha1.NamespacedObjectReference) (*panoptikumv1alpha1.UserAuthentication, bool) {
-	var userAuth panoptikumv1alpha1.UserAuthentication
-	if !apicall.ApiTryGet(ctx, r.Client, client.ObjectKey{Name: ref.Name, Namespace: resolveNamespace(ownNamespace, ref.Namespace)}, &userAuth) {
-		return nil, false
-	}
-	return &userAuth, true
+	log.V(1).Info("Reconciled Portal", "resolvedRefs", resolvedRefs.Status, "ready", ready.Status, "appRegistrations", len(appRegistrations))
 }
 
 // boundAppRegistrations lists every AppRegistration bound to portal
-// (resolved portalRef matches, and Accepted=True), sorted for a stable
-// status diff. Uses a full List + in-memory filter rather than an indexed
-// List so this also works against direct (non-cached) clients, e.g. in
-// tier-2 envtest reconciler tests.
-func (r *PortalReconciler) boundAppRegistrations(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal) []panoptikumv1alpha1.NamespacedObjectReference {
+// (resolved portalRef matches, and Accepted=True), sorted by namespace/name
+// for a stable order. Uses a full List + in-memory filter rather than an
+// indexed List so this also works against direct (non-cached) clients,
+// e.g. in tier-2 envtest reconciler tests.
+func (r *PortalReconciler) boundAppRegistrations(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal) []panoptikumv1alpha1.AppRegistration {
 	var list panoptikumv1alpha1.AppRegistrationList
 	apicall.ApiList(ctx, r.Client, &list)
 
-	var bound []panoptikumv1alpha1.NamespacedObjectReference
+	var bound []panoptikumv1alpha1.AppRegistration
 	for _, ar := range list.Items {
 		if resolveNamespace(ar.Namespace, ar.Spec.PortalRef.Namespace) != portal.Namespace || ar.Spec.PortalRef.Name != portal.Name {
 			continue
@@ -141,10 +167,10 @@ func (r *PortalReconciler) boundAppRegistrations(ctx xhdl.Context, portal *panop
 		if !apimeta.IsStatusConditionTrue(ar.Status.Conditions, panoptikumv1alpha1.ConditionTypeAccepted) {
 			continue
 		}
-		bound = append(bound, panoptikumv1alpha1.NamespacedObjectReference{Name: ar.Name, Namespace: ar.Namespace})
+		bound = append(bound, ar)
 	}
 
-	slices.SortFunc(bound, func(a, b panoptikumv1alpha1.NamespacedObjectReference) int {
+	slices.SortFunc(bound, func(a, b panoptikumv1alpha1.AppRegistration) int {
 		if c := cmp.Compare(a.Namespace, b.Namespace); c != 0 {
 			return c
 		}
@@ -152,6 +178,154 @@ func (r *PortalReconciler) boundAppRegistrations(ctx xhdl.Context, portal *panop
 	})
 
 	return bound
+}
+
+// appRegistrationRefs projects bound AppRegistrations down to the
+// name/namespace pairs stored in Portal.status.appRegistrations. Returns nil
+// (not an empty slice) when bound is empty, to match status.AppRegistrations'
+// zero value for a stable reflect.DeepEqual diff.
+func appRegistrationRefs(bound []panoptikumv1alpha1.AppRegistration) []panoptikumv1alpha1.NamespacedObjectReference {
+	if len(bound) == 0 {
+		return nil
+	}
+	refs := make([]panoptikumv1alpha1.NamespacedObjectReference, 0, len(bound))
+	for _, ar := range bound {
+		refs = append(refs, panoptikumv1alpha1.NamespacedObjectReference{Name: ar.Name, Namespace: ar.Namespace})
+	}
+	return refs
+}
+
+// buildConfig resolves the UserAuthentication's actual secret values and
+// every bound AppRegistration's AppAuthentication, producing the document
+// to write into the generated config Secret. Returns ok=false only if the
+// UserAuthentication's own secret data doesn't resolve - a hard requirement,
+// since the portal-server can't render anything without it. An individual
+// AppRegistration whose AppAuthentication doesn't resolve is skipped
+// (logged) rather than failing the whole Portal's config.
+func (r *PortalReconciler) buildConfig(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal, userAuth *panoptikumv1alpha1.UserAuthentication, bound []panoptikumv1alpha1.AppRegistration) (portalconfig.Config, bool) {
+	log := logf.FromContext(ctx)
+
+	clientSecret, ok := r.getSecretValue(ctx, userAuth.Namespace, userAuth.Spec.ClientSecretRef)
+	if !ok {
+		return portalconfig.Config{}, false
+	}
+	cookieSecret, ok := r.getSecretValue(ctx, userAuth.Namespace, userAuth.Spec.CookieSecretRef)
+	if !ok {
+		return portalconfig.Config{}, false
+	}
+
+	cfg := portalconfig.Config{
+		Portal: portalconfig.PortalConfig{
+			Host:        portal.Spec.Host,
+			DisplayName: portal.Spec.DisplayName,
+		},
+		UserAuthentication: portalconfig.UserAuthenticationConfig{
+			IssuerURL:            userAuth.Spec.IssuerURL,
+			ClientID:             userAuth.Spec.ClientID,
+			ClientSecret:         clientSecret,
+			CookieSecret:         cookieSecret,
+			Scopes:               userAuth.Spec.Scopes,
+			AllowUnverifiedEmail: userAuth.Spec.AllowUnverifiedEmail,
+		},
+	}
+
+	if portal.Spec.Customization != nil {
+		cfg.Portal.Customization = &portalconfig.CustomizationConfig{
+			LogoURL:         portal.Spec.Customization.LogoURL,
+			FaviconURL:      portal.Spec.Customization.FaviconURL,
+			BackgroundColor: portal.Spec.Customization.BackgroundColor,
+			AccentColor:     portal.Spec.Customization.AccentColor,
+		}
+	}
+
+	for _, ar := range bound {
+		appCfg, ok := buildAppConfig(ctx, r.Client, ar)
+		if !ok {
+			log.Info("Skipping AppRegistration with unresolved appAuthenticationRef", "name", ar.Name, "namespace", ar.Namespace)
+			continue
+		}
+		cfg.Apps = append(cfg.Apps, appCfg)
+	}
+
+	slices.SortFunc(cfg.Apps, func(a, b portalconfig.AppConfig) int {
+		return cmp.Compare(a.SortOrder, b.SortOrder)
+	})
+
+	return cfg, true
+}
+
+// buildAppConfig resolves ar's AppAuthentication and inlines it, alongside a
+// fully resolved BackendURL, into one portalconfig.AppConfig entry.
+func buildAppConfig(ctx xhdl.Context, cl client.Client, ar panoptikumv1alpha1.AppRegistration) (portalconfig.AppConfig, bool) {
+	appAuth, ok := getAppAuthentication(ctx, cl, ar.Namespace, ar.Spec.AppAuthenticationRef)
+	if !ok {
+		return portalconfig.AppConfig{}, false
+	}
+
+	svcNamespace := resolveNamespace(ar.Namespace, ar.Spec.Backend.Service.Namespace)
+	backendURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", ar.Spec.Backend.Service.Name, svcNamespace, ar.Spec.Backend.Service.Port)
+
+	authorization := portalconfig.AppAuthorization{
+		Type: portalconfig.AppAuthorizationType(appAuth.Spec.Type),
+	}
+	if appAuth.Spec.ProxyAuthentication != nil {
+		authorization.ProxyAuthentication = &portalconfig.ProxyAuthenticationConfig{
+			Headers: appAuth.Spec.ProxyAuthentication.Headers,
+		}
+	}
+
+	return portalconfig.AppConfig{
+		DisplayName:   ar.Spec.DisplayName,
+		PathPrefix:    ar.Spec.Routing.PathPrefix,
+		SortOrder:     ar.Spec.SortOrder,
+		BackendURL:    backendURL,
+		Authorization: authorization,
+	}, true
+}
+
+// getSecretValue returns the value of sel.Key in the Secret sel.Name,
+// namespace, or ok=false if the Secret or key doesn't exist.
+func (r *PortalReconciler) getSecretValue(ctx xhdl.Context, namespace string, sel corev1.SecretKeySelector) (string, bool) {
+	var secret corev1.Secret
+	if !apicall.ApiTryGet(ctx, r.Client, client.ObjectKey{Name: sel.Name, Namespace: namespace}, &secret) {
+		return "", false
+	}
+	value, ok := secret.Data[sel.Key]
+	if !ok {
+		return "", false
+	}
+	return string(value), true
+}
+
+// writeConfigSecret creates or updates the generated config Secret for
+// portal from cfg, owned via ownerReferences so it's garbage-collected with
+// the Portal (see docs/ARCHITECTURE.md Decision 4).
+func (r *PortalReconciler) writeConfigSecret(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal, cfg portalconfig.Config) {
+	data, err := json.Marshal(cfg)
+	ctx.Throw(err)
+	hash := sha256.Sum256(data)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      portal.Name + "-config",
+			Namespace: portal.Namespace,
+		},
+	}
+
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
+		if secret.Data == nil {
+			secret.Data = map[string][]byte{}
+		}
+		secret.Data[configSecretDataKey] = data
+
+		if secret.Annotations == nil {
+			secret.Annotations = map[string]string{}
+		}
+		secret.Annotations[configHashAnnotation] = hex.EncodeToString(hash[:])
+
+		return controllerutil.SetControllerReference(portal, secret, r.Scheme)
+	})
+	ctx.Throw(err)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -167,6 +341,7 @@ func (r *PortalReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&panoptikumv1alpha1.Portal{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&panoptikumv1alpha1.UserAuthentication{}, handler.EnqueueRequestsFromMapFunc(r.mapUserAuthenticationToPortals)).
 		Watches(&panoptikumv1alpha1.AppRegistration{}, handler.EnqueueRequestsFromMapFunc(mapAppRegistrationToPortal)).
+		Owns(&corev1.Secret{}).
 		Named("portal").
 		Complete(r)
 }

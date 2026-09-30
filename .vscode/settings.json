@@ -12,6 +12,10 @@
         "/^make manifests generate$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^go build \\./\\.\\.\\. && go vet \\./\\.\\.\\. && make lint-fix$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

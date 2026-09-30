@@ -80,8 +80,8 @@ func (r *AppRegistrationReconciler) reconcile(ctx xhdl.Context, req ctrl.Request
 		return
 	}
 
-	portal, portalFound := r.getPortal(ctx, appReg.Namespace, appReg.Spec.PortalRef)
-	_, appAuthFound := r.getAppAuthentication(ctx, appReg.Namespace, appReg.Spec.AppAuthenticationRef)
+	portal, portalFound := getPortal(ctx, r.Client, appReg.Namespace, appReg.Spec.PortalRef)
+	_, appAuthFound := getAppAuthentication(ctx, r.Client, appReg.Namespace, appReg.Spec.AppAuthenticationRef)
 	_, serviceFound := r.getBackendService(ctx, appReg.Namespace, appReg.Spec.Backend.Service)
 
 	resolvedRefs := metav1.Condition{
@@ -116,22 +116,6 @@ func (r *AppRegistrationReconciler) reconcile(ctx xhdl.Context, req ctrl.Request
 	}
 
 	log.V(1).Info("Reconciled AppRegistration", "resolvedRefs", resolvedRefs.Status, "accepted", accepted.Status)
-}
-
-func (r *AppRegistrationReconciler) getPortal(ctx xhdl.Context, ownNamespace string, ref panoptikumv1alpha1.NamespacedObjectReference) (*panoptikumv1alpha1.Portal, bool) {
-	var portal panoptikumv1alpha1.Portal
-	if !apicall.ApiTryGet(ctx, r.Client, client.ObjectKey{Name: ref.Name, Namespace: resolveNamespace(ownNamespace, ref.Namespace)}, &portal) {
-		return nil, false
-	}
-	return &portal, true
-}
-
-func (r *AppRegistrationReconciler) getAppAuthentication(ctx xhdl.Context, ownNamespace string, ref panoptikumv1alpha1.NamespacedObjectReference) (*panoptikumv1alpha1.AppAuthentication, bool) {
-	var appAuth panoptikumv1alpha1.AppAuthentication
-	if !apicall.ApiTryGet(ctx, r.Client, client.ObjectKey{Name: ref.Name, Namespace: resolveNamespace(ownNamespace, ref.Namespace)}, &appAuth) {
-		return nil, false
-	}
-	return &appAuth, true
 }
 
 func (r *AppRegistrationReconciler) getBackendService(ctx xhdl.Context, ownNamespace string, svc panoptikumv1alpha1.ServiceBackend) (*corev1.Service, bool) {
@@ -179,21 +163,6 @@ func evaluateAccepted(namespace string, generation int64, portal *panoptikumv1al
 	accepted.Reason = "Accepted"
 	accepted.Message = "namespace allowed by Portal's allowedAppNamespaces"
 	return accepted
-}
-
-func resolveNamespace(ownNamespace, refNamespace string) string {
-	if refNamespace == "" {
-		return ownNamespace
-	}
-	return refNamespace
-}
-
-func refString(ownNamespace string, ref panoptikumv1alpha1.NamespacedObjectReference) string {
-	return resolveNamespace(ownNamespace, ref.Namespace) + "/" + ref.Name
-}
-
-func serviceRefString(ownNamespace string, svc panoptikumv1alpha1.ServiceBackend) string {
-	return resolveNamespace(ownNamespace, svc.Namespace) + "/" + svc.Name
 }
 
 // SetupWithManager sets up the controller with the Manager.

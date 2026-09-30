@@ -39,6 +39,14 @@ const (
 	cookieSecretKey = "cookie-secret"
 )
 
+// userHeaderTemplate is the only supported AppAuthentication header
+// template value, and testUserHeaderName the header it's injected under,
+// reused across AppAuthentication/AppRegistration/Portal reconciler tests.
+const (
+	userHeaderTemplate = "$user"
+	testUserHeaderName = "X-Web-User"
+)
+
 var _ = Describe("UserAuthentication Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (
