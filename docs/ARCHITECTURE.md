@@ -610,6 +610,18 @@ input is the mounted `internal/portalconfig.Config` JSON file.
   go to **stdout**; status/application logs (structured, `log/slog` JSON)
   go to **stderr**. Lets log collection filter/route the two independently
   without parsing a mixed stream.
+- Error handling uses `xhdl` the same way the operator's reconcilers do
+  (see "Error handling in reconcilers"), but the per-call boundary is one
+  HTTP request, not one `Reconcile()`: each handler wraps its body in
+  `xhdl.RunContext(r.Context(), func(ctx xhdl.Context) { ... })` —
+  `r.Context()` is the request's own caller context (cancellation/deadline
+  tied to that request), exactly the role `ctx context.Context` plays in
+  `Reconcile(ctx context.Context, req ctrl.Request)`. Everything called
+  from within a handler (cookie encode/decode, OIDC exchange, etc.) takes
+  `xhdl.Context` and calls `ctx.Throw(err)` instead of manual `if err !=
+  nil`. Process-startup work (config loading, cookie codec construction)
+  is a separate, coarser `xhdl.Run` boundary — its own unit of work
+  ("initialize or exit"), not a per-request one.
 
 ### Session & OIDC
 

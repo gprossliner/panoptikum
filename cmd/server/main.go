@@ -34,7 +34,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gprossliner/xhdl"
+
 	"github.com/gprossliner/panoptikum/internal/portalconfig"
+	"github.com/gprossliner/panoptikum/internal/sessioncookie"
 )
 
 func main() {
@@ -55,12 +58,17 @@ func main() {
 	// go to stdout, so the two streams can be collected/filtered separately.
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	cfg, err := loadConfig(configPath)
+	var cfg *portalconfig.Config
+	var cookieCodec *sessioncookie.Codec
+	err = xhdl.Run(func(ctx xhdl.Context) {
+		cfg = loadConfig(ctx, configPath)
+		cookieCodec = sessioncookie.NewCodec(ctx, cfg.UserAuthentication.CookieSecret)
+	})
 	if err != nil {
-		logger.Error("Failed to load config", "path", configPath, "error", err)
+		logger.Error("Failed to initialize", "config", configPath, "error", err)
 		os.Exit(1)
 	}
-	_ = cfg // TODO: wire into OIDC login + reverse proxy
+	_ = cookieCodec // TODO: wire into OIDC login + reverse proxy
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -84,17 +92,14 @@ func main() {
 	}
 }
 
-func loadConfig(path string) (*portalconfig.Config, error) {
+func loadConfig(ctx xhdl.Context, path string) *portalconfig.Config {
 	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
+	ctx.Throw(err)
 
 	var cfg portalconfig.Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
+	err = json.Unmarshal(data, &cfg)
+	ctx.Throw(err)
+	return &cfg
 }
 
 func parseLogLevel(s string) (slog.Level, error) {
