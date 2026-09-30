@@ -386,6 +386,38 @@ the repo needs two separate `main` packages (`cmd/operator`, `cmd/server`,
 per Decision 4) rather than the single-binary layout most scaffolding
 assumes.
 
+### Decision 10: Portal-server Deployment image — self-introspection; resources/replicas are real Portal fields
+
+Creating the portal-server `Deployment` (Decision 4) needs an image/tag,
+`resources`, and a replica count:
+
+- **Image**: Decision 4 already establishes "exactly one image, selected
+  via the container's `command:`" as a hard invariant, not a per-`Portal`
+  choice — so it's derived, never configured. At startup the operator
+  reads its own namespace from the standard mounted service-account file
+  (`/var/run/secrets/kubernetes.io/serviceaccount/namespace`, present on
+  any pod with a token mounted) and its own pod name from `os.Hostname()`
+  (a Deployment-managed pod's hostname defaults to its own name), does a
+  `Get` on its own `Pod`, and reads the `manager` container's `.image`
+  from the live object. This needs one new RBAC grant (`get` on `pods`)
+  but zero manifest/Helm changes — the same `image:` field already
+  required to run the operator is automatically correct for the
+  portal-server too, since it's read live rather than duplicated into a
+  second field that could drift out of sync.
+- **`resources` and replica count**: unlike the image, these genuinely are
+  per-`Portal` choices, so they're real fields:
+  `Portal.spec.server.{replicas,resources}` (`PortalServerConfig`).
+  `resources` reuses the standard `corev1.ResourceRequirements` type
+  rather than a bespoke shape. Both default via CRD defaulting when
+  omitted (`replicas: 1`, conservative `resources`) — the `server` field
+  itself defaults to `{}` so the nested per-field defaults apply even when
+  a `Portal` doesn't mention `server` at all (Kubernetes structural-schema
+  defaulting recurses into a defaulted-in object). `replicas` defaults to
+  1, not 2 — despite Decision 7 establishing multi-replica *support* from
+  day one, defaulting to a single replica is the less surprising choice;
+  users who want more set `spec.server.replicas` explicitly.
+
+
 ## Reconciliation design
 
 Four reconcilers, one per CRD (`Portal`, `UserAuthentication`,

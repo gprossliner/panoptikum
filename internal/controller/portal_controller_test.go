@@ -22,6 +22,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -240,5 +241,48 @@ var _ = Describe("Portal Controller", func() {
 		Expect(app.Authorization.ProxyAuthentication.Headers).To(Equal(map[string]string{testUserHeaderName: userHeaderTemplate}))
 
 		Expect(secret.Annotations).To(HaveKey("panoptikum.dev/config-hash"))
+	})
+
+	It("creates the portal-server Deployment and Service once the image is known", func() {
+		const portalName = "p-6"
+		createUserAuthentication("p-userauth-6")
+		createPortal(portalName, "p-userauth-6")
+
+		controllerReconciler := &PortalReconciler{
+			Client: k8sClient,
+			Scheme: k8sClient.Scheme(),
+			Image:  "example.com/panoptikum:test",
+		}
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: portalName, Namespace: namespace},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		var secret corev1.Secret
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: portalName + "-config", Namespace: namespace}, &secret)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, &secret)).To(Succeed()) })
+		configHash := secret.Annotations["panoptikum.dev/config-hash"]
+		Expect(configHash).NotTo(BeEmpty())
+
+		var deployment appsv1.Deployment
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: portalName, Namespace: namespace}, &deployment)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, &deployment)).To(Succeed()) })
+
+		Expect(*deployment.Spec.Replicas).To(Equal(int32(1)))
+		Expect(deployment.Spec.Template.Annotations["panoptikum.dev/config-hash"]).To(Equal(configHash))
+		Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		container := deployment.Spec.Template.Spec.Containers[0]
+		Expect(container.Image).To(Equal("example.com/panoptikum:test"))
+		Expect(container.Command).To(Equal([]string{"/server"}))
+		Expect(container.Resources.Requests.Cpu().String()).To(Equal("10m"))
+		Expect(*deployment.Spec.Template.Spec.AutomountServiceAccountToken).To(BeFalse())
+
+		var service corev1.Service
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: portalName, Namespace: namespace}, &service)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, &service)).To(Succeed()) })
+		Expect(service.Spec.Selector).To(Equal(map[string]string{
+			"app.kubernetes.io/name":     "portal-server",
+			"app.kubernetes.io/instance": portalName,
+		}))
 	})
 })

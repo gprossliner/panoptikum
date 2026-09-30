@@ -27,11 +27,13 @@ import (
 	"slices"
 
 	"github.com/gprossliner/xhdl"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,6 +52,13 @@ import (
 type PortalReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// Image is the portal-server container image, normally set once at
+	// startup via OwnImage (see docs/ARCHITECTURE.md Decision 10). Left
+	// empty when self-introspection fails (e.g. running via `make
+	// run-operator` outside a cluster) - the Deployment/Service are then
+	// simply not created, without failing the rest of reconciliation.
+	Image string
 }
 
 // Field indexer key, used to find Portals referencing a given
@@ -73,6 +82,8 @@ const configHashAnnotation = "panoptikum.dev/config-hash"
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=appregistrations,verbs=get;list;watch
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=appauthentications,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
 
 // Reconcile resolves Portal.spec.userAuthenticationRef, computes
 // status.appRegistrations from the AppRegistrations currently Accepted
@@ -123,7 +134,13 @@ func (r *PortalReconciler) reconcile(ctx xhdl.Context, req ctrl.Request) {
 		ready.Message = resolvedRefs.Message
 	default:
 		if cfg, ok := r.buildConfig(ctx, &portal, userAuth, bound); ok {
-			r.writeConfigSecret(ctx, &portal, cfg)
+			hash := r.writeConfigSecret(ctx, &portal, cfg)
+			if r.Image != "" {
+				r.writeDeployment(ctx, &portal, hash)
+				r.writeService(ctx, &portal)
+			} else {
+				log.V(1).Info("Skipping Deployment/Service: own image unresolved")
+			}
 			ready.Status = metav1.ConditionTrue
 			ready.Reason = "ConfigWritten"
 			ready.Message = "merged config Secret written"
@@ -299,11 +316,14 @@ func (r *PortalReconciler) getSecretValue(ctx xhdl.Context, namespace string, se
 
 // writeConfigSecret creates or updates the generated config Secret for
 // portal from cfg, owned via ownerReferences so it's garbage-collected with
-// the Portal (see docs/ARCHITECTURE.md Decision 4).
-func (r *PortalReconciler) writeConfigSecret(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal, cfg portalconfig.Config) {
+// the Portal (see docs/ARCHITECTURE.md Decision 4). Returns the hex-encoded
+// sha256 of the written JSON, to stamp on the Deployment's pod template
+// (the Secret write always happens first, per Decision 4).
+func (r *PortalReconciler) writeConfigSecret(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal, cfg portalconfig.Config) string {
 	data, err := json.Marshal(cfg)
 	ctx.Throw(err)
 	hash := sha256.Sum256(data)
+	hashHex := hex.EncodeToString(hash[:])
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -321,9 +341,120 @@ func (r *PortalReconciler) writeConfigSecret(ctx xhdl.Context, portal *panoptiku
 		if secret.Annotations == nil {
 			secret.Annotations = map[string]string{}
 		}
-		secret.Annotations[configHashAnnotation] = hex.EncodeToString(hash[:])
+		secret.Annotations[configHashAnnotation] = hashHex
 
 		return controllerutil.SetControllerReference(portal, secret, r.Scheme)
+	})
+	ctx.Throw(err)
+
+	return hashHex
+}
+
+// portalServerLabels returns the selector/pod-template labels shared by the
+// generated Deployment and Service for portal.
+func portalServerLabels(portal *panoptikumv1alpha1.Portal) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/name":     "portal-server",
+		"app.kubernetes.io/instance": portal.Name,
+	}
+}
+
+// resourcesOrDefault returns *r, or the zero value if r is nil - defensive
+// fallback for objects that somehow bypassed the CRD's default (see
+// PortalServerConfig.Resources).
+func resourcesOrDefault(r *corev1.ResourceRequirements) corev1.ResourceRequirements {
+	if r == nil {
+		return corev1.ResourceRequirements{}
+	}
+	return *r
+}
+
+// writeDeployment creates or updates the portal-server Deployment for
+// portal. configHash is stamped on the pod template so a config change
+// triggers a rolling restart (see docs/ARCHITECTURE.md Decision 4). Only
+// called once r.Image is known (see OwnImage/Decision 10).
+func (r *PortalReconciler) writeDeployment(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal, configHash string) {
+	labels := portalServerLabels(portal)
+	replicas := portal.Spec.Server.Replicas
+
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      portal.Name,
+			Namespace: portal.Namespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
+		deployment.Spec.Replicas = &replicas
+		deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = map[string]string{}
+		}
+		deployment.Spec.Template.Annotations[configHashAnnotation] = configHash
+		deployment.Spec.Template.Labels = labels
+
+		deployment.Spec.Template.Spec = corev1.PodSpec{
+			// The portal-server never talks to the Kubernetes API (Decision 4).
+			AutomountServiceAccountToken: new(false),
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot:   new(true),
+				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+			},
+			Containers: []corev1.Container{
+				{
+					Name:    portalServerContainerName,
+					Image:   r.Image,
+					Command: []string{"/server"},
+					Ports: []corev1.ContainerPort{
+						{Name: "http", ContainerPort: 8080, Protocol: corev1.ProtocolTCP},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{Name: "config", MountPath: "/etc/panoptikum", ReadOnly: true},
+					},
+					// Defaults come from PortalServerConfig's CRD defaulting (see
+					// docs/ARCHITECTURE.md Decision 10); spec.server.resources overrides.
+					Resources: resourcesOrDefault(portal.Spec.Server.Resources),
+					SecurityContext: &corev1.SecurityContext{
+						AllowPrivilegeEscalation: new(false),
+						ReadOnlyRootFilesystem:   new(true),
+						Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "config",
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{SecretName: portal.Name + "-config"},
+					},
+				},
+			},
+		}
+
+		return controllerutil.SetControllerReference(portal, deployment, r.Scheme)
+	})
+	ctx.Throw(err)
+}
+
+// writeService creates or updates the Service fronting the portal-server
+// Deployment for portal.
+func (r *PortalReconciler) writeService(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal) {
+	labels := portalServerLabels(portal)
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      portal.Name,
+			Namespace: portal.Namespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, service, func() error {
+		service.Spec.Selector = labels
+		service.Spec.Ports = []corev1.ServicePort{
+			{Name: "http", Port: 80, TargetPort: intstr.FromString("http"), Protocol: corev1.ProtocolTCP},
+		}
+		return controllerutil.SetControllerReference(portal, service, r.Scheme)
 	})
 	ctx.Throw(err)
 }
@@ -342,6 +473,8 @@ func (r *PortalReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&panoptikumv1alpha1.UserAuthentication{}, handler.EnqueueRequestsFromMapFunc(r.mapUserAuthenticationToPortals)).
 		Watches(&panoptikumv1alpha1.AppRegistration{}, handler.EnqueueRequestsFromMapFunc(mapAppRegistrationToPortal)).
 		Owns(&corev1.Secret{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
 		Named("portal").
 		Complete(r)
 }

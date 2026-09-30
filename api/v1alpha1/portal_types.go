@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -63,6 +64,24 @@ type PortalIngress struct {
 	TLS *PortalIngressTLS `json:"tls,omitempty"`
 }
 
+// PortalServerConfig configures the generated portal-server Deployment.
+// The container image is never configured here - it's always the same
+// image the operator itself runs (see docs/ARCHITECTURE.md Decision 10).
+type PortalServerConfig struct {
+	// replicas is the number of portal-server replicas.
+	// +optional
+	// +kubebuilder:default=1
+	Replicas int32 `json:"replicas,omitempty"`
+
+	// resources are the compute resources for the portal-server container.
+	// A pointer (not a plain struct), so that leaving it unset - including
+	// via the Go client, where encoding/json's omitempty never omits a
+	// non-pointer struct - lets the CRD default below actually apply.
+	// +optional
+	// +kubebuilder:default={"requests":{"cpu":"10m","memory":"32Mi"},"limits":{"cpu":"200m","memory":"128Mi"}}
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
 // PortalSpec defines the desired state of Portal
 type PortalSpec struct {
 	// host is the externally-visible hostname, used for the OIDC redirect
@@ -92,6 +111,13 @@ type PortalSpec struct {
 	// ingress configures whether/how this Portal creates its own Ingress.
 	// +optional
 	Ingress *PortalIngress `json:"ingress,omitempty"`
+
+	// server configures the generated portal-server Deployment (replicas,
+	// resources). Defaults to a single replica with conservative resource
+	// requests/limits when omitted.
+	// +optional
+	// +kubebuilder:default={}
+	Server PortalServerConfig `json:"server,omitempty"`
 }
 
 // PortalStatus defines the observed state of Portal.

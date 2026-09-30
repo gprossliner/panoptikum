@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -182,9 +183,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Self-introspect our own container image, so the generated portal-server
+	// Deployment always runs exactly the same image (see docs/ARCHITECTURE.md
+	// Decision 10). Not fatal: running via `make run-operator` outside a
+	// cluster has no "own pod" to look up, so the Deployment/Service are
+	// simply skipped until running in-cluster for real.
+	portalServerImage, err := controller.OwnImage(context.Background(), mgr.GetAPIReader())
+	if err != nil {
+		setupLog.Info("Unable to self-introspect own container image, portal-server Deployment/Service will not be created",
+			"error", err.Error())
+	}
+
 	if err := (&controller.PortalReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		Image:  portalServerImage,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "portal")
 		os.Exit(1)
