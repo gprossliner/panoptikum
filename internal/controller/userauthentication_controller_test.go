@@ -33,6 +33,12 @@ import (
 	panoptikumv1alpha1 "github.com/gprossliner/panoptikum/api/v1alpha1"
 )
 
+// Shared Secret data keys used across UserAuthentication/Portal reconciler tests.
+const (
+	clientSecretKey = "client-secret"
+	cookieSecretKey = "cookie-secret"
+)
+
 var _ = Describe("UserAuthentication Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (
@@ -56,8 +62,8 @@ var _ = Describe("UserAuthentication Controller", func() {
 					Namespace: resourceNamespace,
 				},
 				Data: map[string][]byte{
-					"client-secret": []byte("s3cr3t"),
-					"cookie-secret": []byte("c00k1e"),
+					clientSecretKey: []byte("s3cr3t"),
+					cookieSecretKey: []byte("c00k1e"),
 				},
 			}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace}, &corev1.Secret{})
@@ -78,11 +84,11 @@ var _ = Describe("UserAuthentication Controller", func() {
 						ClientID:  "management-portal",
 						ClientSecretRef: corev1.SecretKeySelector{
 							LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
-							Key:                  "client-secret",
+							Key:                  clientSecretKey,
 						},
 						CookieSecretRef: corev1.SecretKeySelector{
 							LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
-							Key:                  "cookie-secret",
+							Key:                  cookieSecretKey,
 						},
 					},
 				}
