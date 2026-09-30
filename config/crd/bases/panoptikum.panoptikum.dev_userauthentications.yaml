@@ -40,25 +40,90 @@ spec:
           spec:
             description: spec defines the desired state of UserAuthentication
             properties:
-              foo:
-                description: foo is an example field of UserAuthentication. Edit userauthentication_types.go
-                  to remove/update
+              allowUnverifiedEmail:
+                description: |-
+                  allowUnverifiedEmail allows login for users whose email claim is not
+                  marked verified by the issuer.
+                type: boolean
+              clientID:
+                description: clientID is the OAuth2/OIDC client ID registered with
+                  the issuer.
                 type: string
+              clientSecretRef:
+                description: clientSecretRef references the Secret key holding the
+                  OAuth2/OIDC client secret.
+                properties:
+                  key:
+                    description: The key of the secret to select from.  Must be a
+                      valid secret key.
+                    type: string
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                  optional:
+                    description: Specify whether the Secret or its key must be defined
+                    type: boolean
+                required:
+                - key
+                type: object
+                x-kubernetes-map-type: atomic
+              cookieSecretRef:
+                description: |-
+                  cookieSecretRef references the Secret key holding the symmetric key used to
+                  encrypt and sign session and OIDC handshake cookies, shared by every
+                  portal-server replica (see docs/ARCHITECTURE.md Decision 7).
+                properties:
+                  key:
+                    description: The key of the secret to select from.  Must be a
+                      valid secret key.
+                    type: string
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                  optional:
+                    description: Specify whether the Secret or its key must be defined
+                    type: boolean
+                required:
+                - key
+                type: object
+                x-kubernetes-map-type: atomic
+              issuerURL:
+                description: issuerURL is the OIDC issuer URL used to discover endpoints
+                  and validate tokens.
+                type: string
+              scopes:
+                default:
+                - openid
+                - profile
+                - email
+                description: scopes are the OIDC scopes requested during authentication.
+                items:
+                  type: string
+                type: array
+            required:
+            - clientID
+            - clientSecretRef
+            - cookieSecretRef
+            - issuerURL
             type: object
           status:
             description: status defines the observed state of UserAuthentication
             properties:
               conditions:
-                description: |-
-                  conditions represent the current state of the UserAuthentication resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: conditions represent the current state of the UserAuthentication
+                  resource.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +181,34 @@ spec:
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
+                x-kubernetes-list-type: map
+              portals:
+                description: portals lists the Portals currently bound to this UserAuthentication.
+                items:
+                  description: |-
+                    NamespacedObjectReference identifies another object by name and, optionally,
+                    namespace. When Namespace is empty, it defaults to the referencing object's
+                    own namespace (see docs/ARCHITECTURE.md Decision 2). Also used for back-ref
+                    status lists (Decision 5), where Namespace is always populated.
+                  properties:
+                    name:
+                      description: name of the referenced object.
+                      type: string
+                    namespace:
+                      default: ""
+                      description: |-
+                        namespace of the referenced object. Defaults to the referencing object's
+                        own namespace when omitted. Explicit default (rather than merely
+                        x-kubernetes-list-map-key on status back-ref lists (Decision 5), which
+                        the Kubernetes API server requires to have a default or be required.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                - namespace
                 x-kubernetes-list-type: map
             type: object
         required:

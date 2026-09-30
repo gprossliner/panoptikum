@@ -64,6 +64,11 @@ Always use `kubebuilder create api` and `kubebuilder create webhook` to scaffold
 The e2e tests are designed to validate the solution in an isolated environment (similar to GitHub Actions CI).
 Ensure you run them against a dedicated [Kind](https://kind.sigs.k8s.io/) cluster (not your “real” dev/prod cluster).
 
+### Don't Pipe Long-Running Commands to `tail`
+Avoid `| tail -n` (or similar) on commands like `make test`, `make lint`, builds, etc. The user
+watches these run in the terminal and wants to see progress as it happens, not just the end.
+Only filter output when there's a specific reason (e.g. grepping for one known error).
+
 ## After Making Changes
 
 **After editing `*_types.go` or markers:**

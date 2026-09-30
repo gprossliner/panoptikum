@@ -17,46 +17,56 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // UserAuthenticationSpec defines the desired state of UserAuthentication
 type UserAuthenticationSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// issuerURL is the OIDC issuer URL used to discover endpoints and validate tokens.
+	// +required
+	IssuerURL string `json:"issuerURL"`
 
-	// foo is an example field of UserAuthentication. Edit userauthentication_types.go to remove/update
+	// clientID is the OAuth2/OIDC client ID registered with the issuer.
+	// +required
+	ClientID string `json:"clientID"`
+
+	// clientSecretRef references the Secret key holding the OAuth2/OIDC client secret.
+	// +required
+	ClientSecretRef corev1.SecretKeySelector `json:"clientSecretRef"`
+
+	// cookieSecretRef references the Secret key holding the symmetric key used to
+	// encrypt and sign session and OIDC handshake cookies, shared by every
+	// portal-server replica (see docs/ARCHITECTURE.md Decision 7).
+	// +required
+	CookieSecretRef corev1.SecretKeySelector `json:"cookieSecretRef"`
+
+	// scopes are the OIDC scopes requested during authentication.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// +kubebuilder:default={openid,profile,email}
+	Scopes []string `json:"scopes,omitempty"`
+
+	// allowUnverifiedEmail allows login for users whose email claim is not
+	// marked verified by the issuer.
+	// +optional
+	AllowUnverifiedEmail bool `json:"allowUnverifiedEmail,omitempty"`
 }
 
 // UserAuthenticationStatus defines the observed state of UserAuthentication.
 type UserAuthenticationStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the UserAuthentication resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// portals lists the Portals currently bound to this UserAuthentication.
+	// +listType=map
+	// +listMapKey=name
+	// +listMapKey=namespace
+	// +optional
+	Portals []NamespacedObjectReference `json:"portals,omitempty"`
 }
 
 // +kubebuilder:object:root=true
