@@ -591,6 +591,103 @@ Rules for using it consistently:
 - Invisible to the testing strategy above: `Reconcile()` still returns the
   normal `(ctrl.Result, error)` signature, so tiers 2/3 need no changes.
 
+## Server (portal-server)
+
+`cmd/server` is the data-plane binary (Decision 4): one process, no
+Kubernetes API access, handling both OIDC login and reverse-proxying to
+registered apps. It never talks to the operator directly — its entire
+input is the mounted `internal/portalconfig.Config` JSON file.
+
+### Process shape
+
+- Flags, not env vars (consistent with the rest of this binary's existing
+  `--address`): `--config` (path to the mounted config JSON, default
+  `/etc/panoptikum/config.json`), `--address` (listener bind address),
+  `--log-level` (`debug`/`info`/`warn`/`error`).
+- **Two separate log streams, mirroring the predecessor Terraform
+  module's nginx `access_log`/`error_log` split**: access logs (one line
+  per request, Apache Common Log Format, deliberately not configurable)
+  go to **stdout**; status/application logs (structured, `log/slog` JSON)
+  go to **stderr**. Lets log collection filter/route the two independently
+  without parsing a mixed stream.
+
+### Session & OIDC
+
+- Session state is a small, encrypted/signed cookie (Decision 7) — no
+  server-side store, any replica can validate any other's cookie. Only
+  the claims actually needed for header templating are stored (just
+  `$user` today, per the non-goals) — never full ID/refresh tokens.
+- `/login`: redirects to the IdP (authorization code + PKCE, `state`/
+  `nonce` in a short-lived handshake cookie), remembering the originally-
+  requested URL so `/callback` can redirect back to it afterwards — the
+  same role oauth2-proxy's `sign_in?rd=<url>` played in the predecessor.
+- `/callback`: exchanges the code, validates the ID token
+  (`coreos/go-oidc` + `golang.org/x/oauth2`, not hand-rolled — see
+  Security considerations), sets the session cookie, redirects back.
+- `/logout`: clears the session cookie.
+- An auth middleware gates every proxied route: valid session → attach
+  the user to the request context; missing/invalid → redirect to
+  `/login?rd=<original-url>`. This collapses the predecessor's nginx
+  `auth_request` + `error_page 401` subrequest pattern (a separate
+  oauth2-proxy sidecar reached via an internal HTTP call per request)
+  into a single in-process check — no subrequest machinery needed once
+  OIDC and proxying live in the same binary.
+
+### Reverse proxy
+
+Requirements confirmed against the predecessor Terraform module's
+`nginx.conf` (one hand-written `location` block per app, which
+`AppRegistration` generalizes into data):
+
+- **No path rewriting**: the full, unmodified request URI is forwarded to
+  the backend as-is. Backend apps configure their own base path (Grafana
+  `server.serve_from_sub_path`, Headlamp/Jaeger/Prometheus
+  `baseURL`/`routePrefix`/equivalent) and expect to see it in the
+  incoming request — matches `AppRegistration.spec.routing.pathPrefix`'s
+  non-goal of supporting root-only apps. In practice this means never
+  touching `r.URL.Path` before proxying.
+- **Bare-prefix redirect**: a request for `/grafana` (no trailing slash)
+  must `301` to `/grafana/` using the *trusted external* scheme/host, not
+  whatever the reverse proxy sees locally — behind a TLS-terminating
+  ingress, the portal-server only sees plain HTTP, so this must come from
+  `X-Forwarded-Proto`/`X-Forwarded-Host`, trusted only from the actual
+  ingress hop (see Security considerations).
+- **WebSocket passthrough** is required (Headlamp's live pod logs/exec,
+  Grafana Live). `net/http/httputil.ReverseProxy` handles `Upgrade`
+  transparently in modern Go — confirm with an explicit test rather than
+  assuming.
+- **Trusted header injection** per `AppRegistration`'s resolved
+  `AppAuthentication`: strip any client-supplied header with the same
+  name before setting the authenticated value (see Security
+  considerations — this is the exact bug class that would reopen the
+  auth-bypass hole the whole header-injection design exists to close).
+
+### Portal shell UI
+
+A single static HTML/JS page (server-rendered with `config.portal`/
+`config.apps` data, no separate frontend build): a nav bar generated from
+`config.apps[]` (ordered by `sortOrder`), each app embedded in a
+same-origin `<iframe>` (safe only because everything is path-based
+routing behind one host), reflecting the embedded app's in-app route into
+the parent page's URL hash for deep links/bookmarks — direct continuation
+of the predecessor's same approach, just generated from `AppRegistration`
+data instead of a hand-maintained `apps` map in `index.html`. The
+predecessor fetched the logged-in user from oauth2-proxy's
+`/oauth2/userinfo` endpoint client-side; the portal-server already knows
+the user from its own session, so this becomes a server-rendered value
+instead of a separate client-side fetch.
+
+### Build order
+
+1. Session cookie codec (encrypt/sign, pure/unit-testable, no HTTP).
+2. OIDC login flow (`/login` + `/callback`).
+3. Auth middleware.
+4. Reverse proxy per app (exact-URI passthrough, trailing-slash redirect,
+   header injection, WebSocket passthrough).
+5. `/logout`.
+6. Portal shell UI.
+7. Wire into `main.go`; manual smoke test against a real cluster.
+
 ## Security considerations
 
 - Secrets only via `Secret` references (Decision 3) — never inline in CRD
