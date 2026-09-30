@@ -39,25 +39,121 @@ spec:
           spec:
             description: spec defines the desired state of Portal
             properties:
-              foo:
-                description: foo is an example field of Portal. Edit portal_types.go
-                  to remove/update
+              allowedAppNamespaces:
+                default: .+
+                description: |-
+                  allowedAppNamespaces is a regex (RE2), anchored and matched against an
+                  AppRegistration's namespace to decide whether it may bind to this
+                  Portal (see docs/ARCHITECTURE.md Decision 8). Defaults to ".+" (any namespace).
                 type: string
+              customization:
+                description: customization configures optional cosmetic branding of
+                  the portal shell.
+                properties:
+                  accentColor:
+                    description: accentColor sets the active nav link / highlight
+                      color.
+                    type: string
+                  backgroundColor:
+                    description: backgroundColor sets the header background, e.g.
+                      "#303030".
+                    type: string
+                  faviconURL:
+                    description: faviconURL is rendered as a <link href>.
+                    type: string
+                  logoURL:
+                    description: logoURL is rendered as an <img src> in the portal
+                      header.
+                    type: string
+                type: object
+              displayName:
+                description: displayName is shown in the portal shell header. Defaults
+                  to metadata.name when omitted.
+                type: string
+              host:
+                description: |-
+                  host is the externally-visible hostname, used for the OIDC redirect
+                  URI even if ingress.enabled is false and the user fronts it themselves.
+                type: string
+              ingress:
+                description: ingress configures whether/how this Portal creates its
+                  own Ingress.
+                properties:
+                  enabled:
+                    description: |-
+                      enabled selects whether an Ingress is created for this Portal. When
+                      false, no Ingress is created and the user provides their own routing.
+                    type: boolean
+                  ingressClassName:
+                    description: ingressClassName selects the IngressClass to use.
+                    type: string
+                  tls:
+                    description: tls configures certificate issuance for this Portal's
+                      Ingress.
+                    properties:
+                      clusterIssuer:
+                        description: clusterIssuer is the cert-manager ClusterIssuer
+                          name.
+                        type: string
+                    type: object
+                type: object
+              userAuthenticationRef:
+                description: userAuthenticationRef references the OIDC configuration
+                  gating this Portal.
+                properties:
+                  name:
+                    description: name of the referenced object.
+                    type: string
+                  namespace:
+                    default: ""
+                    description: |-
+                      namespace of the referenced object. Defaults to the referencing object's
+                      own namespace when omitted. Explicit default (rather than merely
+                      x-kubernetes-list-map-key on status back-ref lists (Decision 5), which
+                      the Kubernetes API server requires to have a default or be required.
+                    type: string
+                required:
+                - name
+                type: object
+            required:
+            - host
+            - userAuthenticationRef
             type: object
           status:
             description: status defines the observed state of Portal
             properties:
+              appRegistrations:
+                description: appRegistrations lists the AppRegistrations currently
+                  bound to this Portal.
+                items:
+                  description: |-
+                    NamespacedObjectReference identifies another object by name and, optionally,
+                    namespace. When Namespace is empty, it defaults to the referencing object's
+                    own namespace (see docs/ARCHITECTURE.md Decision 2). Also used for back-ref
+                    status lists (Decision 5), where Namespace is always populated.
+                  properties:
+                    name:
+                      description: name of the referenced object.
+                      type: string
+                    namespace:
+                      default: ""
+                      description: |-
+                        namespace of the referenced object. Defaults to the referencing object's
+                        own namespace when omitted. Explicit default (rather than merely
+                        x-kubernetes-list-map-key on status back-ref lists (Decision 5), which
+                        the Kubernetes API server requires to have a default or be required.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                - namespace
+                x-kubernetes-list-type: map
               conditions:
-                description: |-
-                  conditions represent the current state of the Portal resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: conditions represent the current state of the Portal
+                  resource.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

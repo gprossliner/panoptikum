@@ -42,4 +42,12 @@ type NamespacedObjectReference struct {
 const (
 	// ConditionTypeReady indicates whether the resource is fully reconciled and operational.
 	ConditionTypeReady = "Ready"
+
+	// ConditionTypeResolvedRefs indicates whether all of a resource's own
+	// references (to other objects) were found.
+	ConditionTypeResolvedRefs = "ResolvedRefs"
+
+	// ConditionTypeAccepted indicates whether a referenced target resource
+	// has bound the referencing resource (see docs/ARCHITECTURE.md Decision 5).
+	ConditionTypeAccepted = "Accepted"
 )

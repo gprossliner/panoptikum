@@ -39,25 +39,110 @@ spec:
           spec:
             description: spec defines the desired state of AppRegistration
             properties:
-              foo:
-                description: foo is an example field of AppRegistration. Edit appregistration_types.go
-                  to remove/update
+              appAuthenticationRef:
+                description: |-
+                  appAuthenticationRef references how the portal vouches for the
+                  logged-in user to this app.
+                properties:
+                  name:
+                    description: name of the referenced object.
+                    type: string
+                  namespace:
+                    default: ""
+                    description: |-
+                      namespace of the referenced object. Defaults to the referencing object's
+                      own namespace when omitted. Explicit default (rather than merely
+                      x-kubernetes-list-map-key on status back-ref lists (Decision 5), which
+                      the Kubernetes API server requires to have a default or be required.
+                    type: string
+                required:
+                - name
+                type: object
+              backend:
+                description: backend selects the app's backend.
+                properties:
+                  service:
+                    description: service is the in-cluster Service backend. Only supported
+                      backend kind for now.
+                    properties:
+                      name:
+                        description: name of the Service.
+                        type: string
+                      namespace:
+                        default: ""
+                        description: namespace of the Service. Defaults to the AppRegistration's
+                          own namespace when omitted.
+                        type: string
+                      port:
+                        description: port is the Service port to route to.
+                        format: int32
+                        maximum: 65535
+                        minimum: 1
+                        type: integer
+                    required:
+                    - name
+                    - port
+                    type: object
+                required:
+                - service
+                type: object
+              displayName:
+                description: displayName is shown in the Portal's nav. Defaults to
+                  metadata.name when omitted.
                 type: string
+              portalRef:
+                description: portalRef references the Portal this app is registered
+                  with.
+                properties:
+                  name:
+                    description: name of the referenced object.
+                    type: string
+                  namespace:
+                    default: ""
+                    description: |-
+                      namespace of the referenced object. Defaults to the referencing object's
+                      own namespace when omitted. Explicit default (rather than merely
+                      x-kubernetes-list-map-key on status back-ref lists (Decision 5), which
+                      the Kubernetes API server requires to have a default or be required.
+                    type: string
+                required:
+                - name
+                type: object
+              routing:
+                description: routing selects how this app is exposed in the Portal.
+                properties:
+                  pathPrefix:
+                    description: |-
+                      pathPrefix is the path this app is mounted under, e.g. "/grafana/".
+                      Only supported routing kind for now. Requires a leading and trailing
+                      slash, and at least one path segment (no root-only apps, see
+                      docs/ARCHITECTURE.md non-goals).
+                    pattern: ^/.+/$
+                    type: string
+                required:
+                - pathPrefix
+                type: object
+              sortOrder:
+                description: sortOrder controls this app's position in the Portal's
+                  nav (ascending).
+                format: int32
+                type: integer
+            required:
+            - appAuthenticationRef
+            - backend
+            - portalRef
+            - routing
             type: object
           status:
             description: status defines the observed state of AppRegistration
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the AppRegistration resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                  conditions represent the current state of the AppRegistration
+                  resource: ResolvedRefs (portalRef/appAuthenticationRef/backend all
+                  found) and Accepted (bound into the Portal's routing table; False
+                  with reason NamespaceNotAllowed if this namespace doesn't match the
+                  Portal's allowedAppNamespaces, see docs/ARCHITECTURE.md Decision 8).
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

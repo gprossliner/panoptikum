@@ -54,7 +54,12 @@ var _ = Describe("Portal Controller", func() {
 						Name:      resourceName,
 						Namespace: resourceNamespace,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: panoptikumv1alpha1.PortalSpec{
+						Host: "portal.example.com",
+						UserAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{
+							Name: "test-user-authentication",
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

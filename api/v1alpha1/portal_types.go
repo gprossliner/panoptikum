@@ -21,42 +21,93 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// PortalCustomization configures optional cosmetic branding of the portal shell.
+type PortalCustomization struct {
+	// logoURL is rendered as an <img src> in the portal header.
+	// +optional
+	LogoURL string `json:"logoURL,omitempty"`
+
+	// faviconURL is rendered as a <link href>.
+	// +optional
+	FaviconURL string `json:"faviconURL,omitempty"`
+
+	// backgroundColor sets the header background, e.g. "#303030".
+	// +optional
+	BackgroundColor string `json:"backgroundColor,omitempty"`
+
+	// accentColor sets the active nav link / highlight color.
+	// +optional
+	AccentColor string `json:"accentColor,omitempty"`
+}
+
+// PortalIngressTLS configures certificate issuance for a Portal's Ingress.
+type PortalIngressTLS struct {
+	// clusterIssuer is the cert-manager ClusterIssuer name.
+	// +optional
+	ClusterIssuer string `json:"clusterIssuer,omitempty"`
+}
+
+// PortalIngress configures whether/how a Portal creates its own Ingress.
+type PortalIngress struct {
+	// enabled selects whether an Ingress is created for this Portal. When
+	// false, no Ingress is created and the user provides their own routing.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// ingressClassName selects the IngressClass to use.
+	// +optional
+	IngressClassName string `json:"ingressClassName,omitempty"`
+
+	// tls configures certificate issuance for this Portal's Ingress.
+	// +optional
+	TLS *PortalIngressTLS `json:"tls,omitempty"`
+}
 
 // PortalSpec defines the desired state of Portal
 type PortalSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// host is the externally-visible hostname, used for the OIDC redirect
+	// URI even if ingress.enabled is false and the user fronts it themselves.
+	// +required
+	Host string `json:"host"`
 
-	// foo is an example field of Portal. Edit portal_types.go to remove/update
+	// displayName is shown in the portal shell header. Defaults to metadata.name when omitted.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	DisplayName string `json:"displayName,omitempty"`
+
+	// customization configures optional cosmetic branding of the portal shell.
+	// +optional
+	Customization *PortalCustomization `json:"customization,omitempty"`
+
+	// userAuthenticationRef references the OIDC configuration gating this Portal.
+	// +required
+	UserAuthenticationRef NamespacedObjectReference `json:"userAuthenticationRef"`
+
+	// allowedAppNamespaces is a regex (RE2), anchored and matched against an
+	// AppRegistration's namespace to decide whether it may bind to this
+	// Portal (see docs/ARCHITECTURE.md Decision 8). Defaults to ".+" (any namespace).
+	// +optional
+	// +kubebuilder:default=".+"
+	AllowedAppNamespaces string `json:"allowedAppNamespaces,omitempty"`
+
+	// ingress configures whether/how this Portal creates its own Ingress.
+	// +optional
+	Ingress *PortalIngress `json:"ingress,omitempty"`
 }
 
 // PortalStatus defines the observed state of Portal.
 type PortalStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the Portal resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// appRegistrations lists the AppRegistrations currently bound to this Portal.
+	// +listType=map
+	// +listMapKey=name
+	// +listMapKey=namespace
+	// +optional
+	AppRegistrations []NamespacedObjectReference `json:"appRegistrations,omitempty"`
 }
 
 // +kubebuilder:object:root=true

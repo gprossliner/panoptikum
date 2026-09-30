@@ -21,38 +21,84 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// ServiceBackend identifies an in-cluster Service backing an AppRegistration.
+type ServiceBackend struct {
+	// name of the Service.
+	// +required
+	Name string `json:"name"`
+
+	// namespace of the Service. Defaults to the AppRegistration's own namespace when omitted.
+	// +optional
+	// +kubebuilder:default=""
+	Namespace string `json:"namespace,omitempty"`
+
+	// port is the Service port to route to.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port"`
+}
+
+// AppRegistrationBackend selects the app's backend. Nested under a single
+// key (service) rather than flat fields on AppRegistrationSpec so a future
+// variant (e.g. an external url:) can be added as a pure addition (see
+// docs/ARCHITECTURE.md Decision 1).
+type AppRegistrationBackend struct {
+	// service is the in-cluster Service backend. Only supported backend kind for now.
+	// +required
+	Service ServiceBackend `json:"service"`
+}
+
+// AppRegistrationRouting selects how an AppRegistration is exposed in the
+// Portal. Nested under a single key (pathPrefix) rather than a flat field
+// on AppRegistrationSpec so a future variant (e.g. subdomain-based host:
+// routing) can be added as a pure addition (see docs/ARCHITECTURE.md
+// Decision 1).
+type AppRegistrationRouting struct {
+	// pathPrefix is the path this app is mounted under, e.g. "/grafana/".
+	// Only supported routing kind for now. Requires a leading and trailing
+	// slash, and at least one path segment (no root-only apps, see
+	// docs/ARCHITECTURE.md non-goals).
+	// +required
+	// +kubebuilder:validation:Pattern=`^/.+/$`
+	PathPrefix string `json:"pathPrefix"`
+}
 
 // AppRegistrationSpec defines the desired state of AppRegistration
 type AppRegistrationSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// portalRef references the Portal this app is registered with.
+	// +required
+	PortalRef NamespacedObjectReference `json:"portalRef"`
 
-	// foo is an example field of AppRegistration. Edit appregistration_types.go to remove/update
+	// appAuthenticationRef references how the portal vouches for the
+	// logged-in user to this app.
+	// +required
+	AppAuthenticationRef NamespacedObjectReference `json:"appAuthenticationRef"`
+
+	// displayName is shown in the Portal's nav. Defaults to metadata.name when omitted.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	DisplayName string `json:"displayName,omitempty"`
+
+	// routing selects how this app is exposed in the Portal.
+	// +required
+	Routing AppRegistrationRouting `json:"routing"`
+
+	// sortOrder controls this app's position in the Portal's nav (ascending).
+	// +optional
+	SortOrder int32 `json:"sortOrder,omitempty"`
+
+	// backend selects the app's backend.
+	// +required
+	Backend AppRegistrationBackend `json:"backend"`
 }
 
 // AppRegistrationStatus defines the observed state of AppRegistration.
 type AppRegistrationStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
-	// conditions represent the current state of the AppRegistration resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
+	// conditions represent the current state of the AppRegistration
+	// resource: ResolvedRefs (portalRef/appAuthenticationRef/backend all
+	// found) and Accepted (bound into the Portal's routing table; False
+	// with reason NamespaceNotAllowed if this namespace doesn't match the
+	// Portal's allowedAppNamespaces, see docs/ARCHITECTURE.md Decision 8).
 	// +listType=map
 	// +listMapKey=type
 	// +optional

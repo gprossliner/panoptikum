@@ -8,6 +8,10 @@
         "/^make test$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^make manifests generate$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

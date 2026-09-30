@@ -21,67 +21,150 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
+	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	panoptikumv1alpha1 "github.com/gprossliner/panoptikum/api/v1alpha1"
 )
 
 var _ = Describe("AppRegistration Controller", func() {
-	Context("When reconciling a resource", func() {
-		const (
-			resourceName      = "test-resource"
-			resourceNamespace = "default"
-		)
+	const namespace = "default"
 
-		ctx := context.Background()
+	ctx := context.Background()
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: resourceNamespace,
+	reconcileAppRegistration := func(name string) *panoptikumv1alpha1.AppRegistration {
+		controllerReconciler := &AppRegistrationReconciler{
+			Client: k8sClient,
+			Scheme: k8sClient.Scheme(),
 		}
-		appregistration := &panoptikumv1alpha1.AppRegistration{}
-
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind AppRegistration")
-			err := k8sClient.Get(ctx, typeNamespacedName, appregistration)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &panoptikumv1alpha1.AppRegistration{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: resourceNamespace,
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
+		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: name, Namespace: namespace},
 		})
+		Expect(err).NotTo(HaveOccurred())
 
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &panoptikumv1alpha1.AppRegistration{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
+		var updated panoptikumv1alpha1.AppRegistration
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &updated)).To(Succeed())
+		return &updated
+	}
 
-			By("Cleanup the specific resource instance AppRegistration")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &AppRegistrationReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+	createPortal := func(name, allowedAppNamespaces string) {
+		portal := &panoptikumv1alpha1.Portal{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Spec: panoptikumv1alpha1.PortalSpec{
+				Host:                  "portal.example.com",
+				UserAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "some-user-authentication"},
+				AllowedAppNamespaces:  allowedAppNamespaces,
+			},
+		}
+		Expect(k8sClient.Create(ctx, portal)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, portal)).To(Succeed()) })
+	}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
-		})
+	createAppAuthentication := func(name string) {
+		appAuth := &panoptikumv1alpha1.AppAuthentication{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Spec: panoptikumv1alpha1.AppAuthenticationSpec{
+				Type: panoptikumv1alpha1.AppAuthenticationTypeProxyAuthentication,
+				ProxyAuthentication: &panoptikumv1alpha1.ProxyAuthenticationConfig{
+					Headers: map[string]string{"X-Web-User": "$user"},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, appAuth)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, appAuth)).To(Succeed()) })
+	}
+
+	createService := func(name string) {
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{{Port: 80}},
+			},
+		}
+		Expect(k8sClient.Create(ctx, svc)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, svc)).To(Succeed()) })
+	}
+
+	createAppRegistration := func(name, portalName, appAuthName, serviceName string) {
+		appReg := &panoptikumv1alpha1.AppRegistration{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+			Spec: panoptikumv1alpha1.AppRegistrationSpec{
+				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: portalName},
+				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: appAuthName},
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "/app/"},
+				Backend: panoptikumv1alpha1.AppRegistrationBackend{
+					Service: panoptikumv1alpha1.ServiceBackend{Name: serviceName, Port: 80},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, appReg)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, appReg)).To(Succeed()) })
+	}
+
+	It("sets ResolvedRefs=True and Accepted=True when everything resolves and the namespace is allowed", func() {
+		createPortal("ar-portal-1", ".+")
+		createAppAuthentication("ar-appauth-1")
+		createService("ar-service-1")
+		createAppRegistration("ar-1", "ar-portal-1", "ar-appauth-1", "ar-service-1")
+
+		updated := reconcileAppRegistration("ar-1")
+
+		resolvedRefs := apimeta.FindStatusCondition(updated.Status.Conditions, panoptikumv1alpha1.ConditionTypeResolvedRefs)
+		Expect(resolvedRefs).NotTo(BeNil())
+		Expect(resolvedRefs.Status).To(Equal(metav1.ConditionTrue))
+
+		accepted := apimeta.FindStatusCondition(updated.Status.Conditions, panoptikumv1alpha1.ConditionTypeAccepted)
+		Expect(accepted).NotTo(BeNil())
+		Expect(accepted.Status).To(Equal(metav1.ConditionTrue))
+		Expect(accepted.Reason).To(Equal("Accepted"))
+	})
+
+	It("sets ResolvedRefs=False and Accepted=False when the Portal does not exist", func() {
+		createAppAuthentication("ar-appauth-2")
+		createService("ar-service-2")
+		createAppRegistration("ar-2", "does-not-exist", "ar-appauth-2", "ar-service-2")
+
+		updated := reconcileAppRegistration("ar-2")
+
+		resolvedRefs := apimeta.FindStatusCondition(updated.Status.Conditions, panoptikumv1alpha1.ConditionTypeResolvedRefs)
+		Expect(resolvedRefs.Status).To(Equal(metav1.ConditionFalse))
+		Expect(resolvedRefs.Reason).To(Equal("PortalNotFound"))
+
+		accepted := apimeta.FindStatusCondition(updated.Status.Conditions, panoptikumv1alpha1.ConditionTypeAccepted)
+		Expect(accepted.Status).To(Equal(metav1.ConditionFalse))
+		Expect(accepted.Reason).To(Equal("PortalNotFound"))
+	})
+
+	It("sets Accepted=False with reason NamespaceNotAllowed when the namespace doesn't match allowedAppNamespaces", func() {
+		createPortal("ar-portal-3", "some-other-namespace")
+		createAppAuthentication("ar-appauth-3")
+		createService("ar-service-3")
+		createAppRegistration("ar-3", "ar-portal-3", "ar-appauth-3", "ar-service-3")
+
+		updated := reconcileAppRegistration("ar-3")
+
+		resolvedRefs := apimeta.FindStatusCondition(updated.Status.Conditions, panoptikumv1alpha1.ConditionTypeResolvedRefs)
+		Expect(resolvedRefs.Status).To(Equal(metav1.ConditionTrue))
+
+		accepted := apimeta.FindStatusCondition(updated.Status.Conditions, panoptikumv1alpha1.ConditionTypeAccepted)
+		Expect(accepted.Status).To(Equal(metav1.ConditionFalse))
+		Expect(accepted.Reason).To(Equal("NamespaceNotAllowed"))
+	})
+
+	It("sets Accepted=Unknown when the Portal's allowedAppNamespaces regex fails to compile", func() {
+		createPortal("ar-portal-4", "(")
+		createAppAuthentication("ar-appauth-4")
+		createService("ar-service-4")
+		createAppRegistration("ar-4", "ar-portal-4", "ar-appauth-4", "ar-service-4")
+
+		updated := reconcileAppRegistration("ar-4")
+
+		accepted := apimeta.FindStatusCondition(updated.Status.Conditions, panoptikumv1alpha1.ConditionTypeAccepted)
+		Expect(accepted).NotTo(BeNil())
+		Expect(accepted.Status).To(Equal(metav1.ConditionUnknown))
+		Expect(accepted.Reason).To(Equal("PortalAllowedNamespacesInvalid"))
 	})
 })
