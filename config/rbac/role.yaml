@@ -1,0 +1,41 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - panoptikum.panoptikum.dev
+  resources:
+  - appauthentications
+  - appregistrations
+  - portals
+  - userauthentications
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - panoptikum.panoptikum.dev
+  resources:
+  - appauthentications/finalizers
+  - appregistrations/finalizers
+  - portals/finalizers
+  - userauthentications/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - panoptikum.panoptikum.dev
+  resources:
+  - appauthentications/status
+  - appregistrations/status
+  - portals/status
+  - userauthentications/status
+  verbs:
+  - get
+  - patch
+  - update

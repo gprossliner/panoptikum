@@ -1,0 +1,7 @@
+## Append samples of your project ##
+resources:
+- panoptikum_v1alpha1_portal.yaml
+- panoptikum_v1alpha1_userauthentication.yaml
+- panoptikum_v1alpha1_appauthentication.yaml
+- panoptikum_v1alpha1_appregistration.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
