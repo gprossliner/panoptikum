@@ -18,10 +18,19 @@ package oidcauth
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gprossliner/xhdl"
+
+	"github.com/gprossliner/panoptikum/internal/sessioncookie"
 )
+
+const testUser = "alice"
 
 type fakeClaimsSource struct {
 	raw []byte
@@ -92,4 +101,139 @@ func TestRandomTokenIsUnique(t *testing.T) {
 	if a == b {
 		t.Error("randomToken produced the same value twice")
 	}
+}
+
+func newTestSessionCodec(t *testing.T) *sessioncookie.Codec {
+	t.Helper()
+
+	var codec *sessioncookie.Codec
+	err := xhdl.Run(func(ctx xhdl.Context) {
+		codec = sessioncookie.NewCodec(ctx, "test-secret")
+	})
+	if err != nil {
+		t.Fatalf("NewCodec: %v", err)
+	}
+	return codec
+}
+
+func TestMiddlewareRedirectsWithoutSessionCookie(t *testing.T) {
+	h := &Handler{sessionCodec: newTestSessionCodec(t)}
+
+	called := false
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })
+
+	req := httptest.NewRequest(http.MethodGet, "/grafana/dashboards?x=1", nil)
+	rec := httptest.NewRecorder()
+	h.Middleware(next).ServeHTTP(rec, req)
+
+	if called {
+		t.Error("next handler was called without a session cookie")
+	}
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
+	}
+
+	loc := rec.Header().Get("Location")
+	if !strings.HasPrefix(loc, LoginPath+"?") {
+		t.Fatalf("Location = %q, want prefix %q", loc, LoginPath+"?")
+	}
+	if got := mustParseRD(t, loc); got != "/grafana/dashboards?x=1" {
+		t.Errorf("rd = %q, want %q", got, "/grafana/dashboards?x=1")
+	}
+}
+
+func TestMiddlewareRedirectsOnTamperedCookie(t *testing.T) {
+	h := &Handler{sessionCodec: newTestSessionCodec(t)}
+
+	req := httptest.NewRequest(http.MethodGet, "/grafana/", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "not-a-valid-cookie"})
+	rec := httptest.NewRecorder()
+	h.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("next handler was called with a tampered session cookie")
+	})).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
+	}
+
+	// The bad cookie must be cleared, not left for the next request to trip over again.
+	cleared := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("Middleware did not clear the tampered session cookie")
+	}
+}
+
+func TestMiddlewareRedirectsOnExpiredSession(t *testing.T) {
+	codec := newTestSessionCodec(t)
+
+	var value string
+	err := xhdl.Run(func(ctx xhdl.Context) {
+		value = codec.Encode(ctx, sessioncookie.Claims{User: testUser, IssuedAt: time.Now().Add(-2 * SessionMaxAge)})
+	})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	h := &Handler{sessionCodec: codec}
+	req := httptest.NewRequest(http.MethodGet, "/grafana/", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: value})
+	rec := httptest.NewRecorder()
+	h.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("next handler was called with an expired session")
+	})).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusFound)
+	}
+}
+
+func TestMiddlewareAllowsValidSession(t *testing.T) {
+	codec := newTestSessionCodec(t)
+
+	var value string
+	err := xhdl.Run(func(ctx xhdl.Context) {
+		value = codec.Encode(ctx, sessioncookie.Claims{User: testUser, IssuedAt: time.Now()})
+	})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	h := &Handler{sessionCodec: codec}
+
+	var gotUser string
+	var gotOK bool
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotOK = UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/grafana/", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: value})
+	rec := httptest.NewRecorder()
+	h.Middleware(next).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !gotOK {
+		t.Fatal("UserFromContext() ok = false, want true")
+	}
+	if gotUser != testUser {
+		t.Errorf("UserFromContext() user = %q, want %q", gotUser, testUser)
+	}
+}
+
+func mustParseRD(t *testing.T, redirectURL string) string {
+	t.Helper()
+
+	u, err := url.Parse(redirectURL)
+	if err != nil {
+		t.Fatalf("parsing redirect URL %q: %v", redirectURL, err)
+	}
+	return u.Query().Get("rd")
 }

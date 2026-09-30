@@ -21,12 +21,14 @@ limitations under the License.
 package oidcauth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -40,6 +42,16 @@ import (
 )
 
 const (
+	// ReservedPrefix is the root for the portal-server's own routes,
+	// distinct from any AppRegistration's own pathPrefix (validated, via
+	// CEL, to never start with this - see AppRegistrationRouting.PathPrefix).
+	ReservedPrefix = "/_panoptikum/"
+
+	// LoginPath and CallbackPath are where HandleLogin/HandleCallback are
+	// meant to be mounted.
+	LoginPath    = ReservedPrefix + "login"
+	CallbackPath = ReservedPrefix + "oidc-callback"
+
 	// HandshakeCookieName holds the short-lived, single-use OIDC handshake
 	// state between /_panoptikum/login and /_panoptikum/oidc-callback.
 	HandshakeCookieName = "panoptikum_handshake"
@@ -188,6 +200,50 @@ func (h *Handler) readHandshake(ctx xhdl.Context, r *http.Request) handshakeClai
 	}
 
 	return claims
+}
+
+// userContextKey is unexported so only this package can set/read it - no
+// caller-supplied context value can spoof an authenticated user.
+type userContextKey struct{}
+
+// UserFromContext returns the user attached by Middleware, or ok=false if
+// the request context has none (i.e. the request didn't go through Middleware).
+func UserFromContext(ctx context.Context) (user string, ok bool) {
+	user, ok = ctx.Value(userContextKey{}).(string)
+	return user, ok
+}
+
+// Middleware gates next behind a valid session cookie: missing, tampered,
+// or expired -> redirect to /_panoptikum/login?rd=<original-url> (clearing
+// the bad cookie first, so a stale-but-undecryptable cookie can't cause a
+// redirect loop); valid -> the authenticated user is attached to the
+// request context (see UserFromContext) and next is called.
+func (h *Handler) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(SessionCookieName)
+		if err != nil {
+			h.redirectToLogin(w, r)
+			return
+		}
+
+		var claims sessioncookie.Claims
+		ok := xhdl.Run(func(ctx xhdl.Context) {
+			claims = h.sessionCodec.Decode(ctx, cookie.Value, SessionMaxAge)
+		}) == nil
+		if !ok {
+			setCookie(w, SessionCookieName, "", -time.Second)
+			h.redirectToLogin(w, r)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), userContextKey{}, claims.User)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (h *Handler) redirectToLogin(w http.ResponseWriter, r *http.Request) {
+	q := url.Values{"rd": {r.URL.RequestURI()}}
+	http.Redirect(w, r, LoginPath+"?"+q.Encode(), http.StatusFound)
 }
 
 // claimsSource is satisfied by *oidc.IDToken - narrowed to just what

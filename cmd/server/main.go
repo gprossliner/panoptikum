@@ -40,12 +40,6 @@ import (
 	"github.com/gprossliner/panoptikum/internal/portalconfig"
 )
 
-// reservedPathPrefix is the root for the portal-server's own routes
-// (health check, login, OIDC callback) - kept distinct from any
-// AppRegistration's own pathPrefix, which is validated (CEL, at admission
-// time) to never start with this prefix.
-const reservedPathPrefix = "/_panoptikum/"
-
 func main() {
 	var configPath, addr, logLevel string
 	flag.StringVar(&configPath, "config", "/etc/panoptikum/config.json",
@@ -70,7 +64,7 @@ func main() {
 		cfg = loadConfig(ctx, configPath)
 		// The browser only ever reaches the portal over HTTPS, terminated at
 		// the cluster's ingress (see docs/ARCHITECTURE.md Server > Reverse proxy).
-		redirectURL := "https://" + cfg.Portal.Host + reservedPathPrefix + "oidc-callback"
+		redirectURL := "https://" + cfg.Portal.Host + oidcauth.CallbackPath
 		auth = oidcauth.NewHandler(ctx, cfg.UserAuthentication, redirectURL)
 	})
 	if err != nil {
@@ -79,11 +73,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc(reservedPathPrefix+"healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc(oidcauth.ReservedPrefix+"healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.HandleFunc(reservedPathPrefix+"login", auth.HandleLogin)
-	mux.HandleFunc(reservedPathPrefix+"oidc-callback", auth.HandleCallback)
+	mux.HandleFunc(oidcauth.LoginPath, auth.HandleLogin)
+	mux.HandleFunc(oidcauth.CallbackPath, auth.HandleCallback)
 
 	srv := &http.Server{Addr: addr, Handler: withAccessLog(mux)}
 

@@ -118,7 +118,8 @@ spec:
                       slash, and at least one path segment (no root-only apps, see
                       docs/ARCHITECTURE.md non-goals). Must not start with "/_panoptikum/",
                       reserved for the portal-server's own routes (login, OIDC callback,
-                      health check).
+                      health check) - keep this literal in sync with
+                      internal/oidcauth.ReservedPrefix, the canonical Go-side source.
                     pattern: ^/.+/$
                     type: string
                     x-kubernetes-validations:

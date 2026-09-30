@@ -60,7 +60,8 @@ type AppRegistrationRouting struct {
 	// slash, and at least one path segment (no root-only apps, see
 	// docs/ARCHITECTURE.md non-goals). Must not start with "/_panoptikum/",
 	// reserved for the portal-server's own routes (login, OIDC callback,
-	// health check).
+	// health check) - keep this literal in sync with
+	// internal/oidcauth.ReservedPrefix, the canonical Go-side source.
 	// +required
 	// +kubebuilder:validation:Pattern=`^/.+/$`
 	// +kubebuilder:validation:XValidation:rule="!self.startsWith('/_panoptikum/')",message="pathPrefix must not start with the reserved /_panoptikum/ prefix"
