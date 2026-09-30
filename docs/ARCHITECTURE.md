@@ -710,6 +710,21 @@ predecessor fetched the logged-in user from oauth2-proxy's
 the user from its own session, so this becomes a server-rendered value
 instead of a separate client-side fetch.
 
+Implemented in `internal/portalshell`: `shell.html` is a real, standalone
+`html/template` file (`//go:embed`) editable directly as HTML/JS/CSS, not
+an inline Go string — parsed once at package init, re-executed per
+request. Re-execution (rather than caching rendered HTML) is deliberate:
+the template itself only depends on `*portalconfig.Config` data that's
+fixed for the process's lifetime, but the logged-in user (read via
+`oidcauth.UserFromContext`) varies per request, and `html/template`
+execution for one small page is cheap enough that there's no reason to
+hand-optimize around the static/dynamic split. Each app's nav id is
+derived from its `pathPrefix` (e.g. `/grafana/` → `grafana`); the same
+id → base-path mapping is embedded into the page as a JSON blob (via
+`encoding/json` + `template.JS`, not hand-built JS) for the client-side
+iframe/hash-routing logic. Mounted at `/` (the `ServeMux` catch-all),
+behind `(*oidcauth.Handler).Middleware` like every other proxied route.
+
 ### Build order
 
 1. ~~Session cookie codec (encrypt/sign, pure/unit-testable, no HTTP).~~ Done.
@@ -718,7 +733,7 @@ instead of a separate client-side fetch.
 4. ~~Reverse proxy per app (exact-URI passthrough, trailing-slash redirect,
    header injection, WebSocket passthrough).~~ Done.
 5. ~~`/logout`.~~ Done.
-6. Portal shell UI.
+6. ~~Portal shell UI.~~ Done.
 7. Wire into `main.go`; manual smoke test against a real cluster.
 
 ## Security considerations

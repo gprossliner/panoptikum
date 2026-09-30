@@ -38,6 +38,7 @@ import (
 	"github.com/gprossliner/panoptikum/internal/appproxy"
 	"github.com/gprossliner/panoptikum/internal/oidcauth"
 	"github.com/gprossliner/panoptikum/internal/portalconfig"
+	"github.com/gprossliner/panoptikum/internal/portalshell"
 )
 
 func main() {
@@ -96,11 +97,12 @@ func main() {
 }
 
 // newMux builds the portal-server's routes: its own reserved routes (login,
-// OIDC callback, health check) plus one reverse-proxying route per app,
-// gated behind auth.Middleware (see docs/ARCHITECTURE.md "Server
-// (portal-server)" > "Reverse proxy"). Each app is mounted as a subtree
-// (its pathPrefix always ends in "/"), so net/http.ServeMux itself handles
-// the bare-prefix -> trailing-slash redirect.
+// OIDC callback, logout, health check), one reverse-proxying route per app,
+// and the portal shell page at "/" - the app and shell routes are gated
+// behind auth.Middleware (see docs/ARCHITECTURE.md "Server (portal-server)"
+// > "Reverse proxy"). Each app is mounted as a subtree (its pathPrefix
+// always ends in "/"), so net/http.ServeMux itself handles the
+// bare-prefix -> trailing-slash redirect.
 func newMux(cfg *portalconfig.Config, auth *oidcauth.Handler) (*http.ServeMux, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc(oidcauth.ReservedPrefix+"healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -117,6 +119,12 @@ func newMux(cfg *portalconfig.Config, auth *oidcauth.Handler) (*http.ServeMux, e
 		}
 		mux.Handle(app.PathPrefix, auth.Middleware(proxy))
 	}
+
+	shell, err := portalshell.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("building portal shell: %w", err)
+	}
+	mux.Handle("/", auth.Middleware(shell))
 
 	return mux, nil
 }

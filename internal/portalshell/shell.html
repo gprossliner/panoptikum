@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{.DisplayName}}</title>
+    {{with .Customization}}{{if .FaviconURL}}<link rel="icon" href="{{.FaviconURL}}" />{{end}}{{end}}
+    <style>
+      :root {
+        color-scheme: light;
+        {{with .Customization}}{{if .BackgroundColor}}--panoptikum-bg: {{.BackgroundColor}};{{end}}{{if .AccentColor}}--panoptikum-accent: {{.AccentColor}};{{end}}{{end}}
+      }
+      body { margin: 0; font-family: system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; background: var(--panoptikum-bg, #f8fafc); color: #0f172a; }
+      header { display: flex; align-items: center; gap: 1rem; padding: 0.5rem 1rem; border-bottom: 1px solid #8884; }
+      header h1 { font-size: 1rem; margin: 0; display: flex; align-items: center; gap: 0.5rem; }
+      header img.logo { height: 1.5rem; }
+      nav { display: flex; gap: 0.5rem; flex: 1; }
+      nav a { padding: 0.25rem 0.75rem; border-radius: 4px; text-decoration: none; color: inherit; }
+      nav a.active { background: var(--panoptikum-accent, #2563eb); color: #fff; font-weight: bold; }
+      .credit { font-size: 0.75rem; opacity: 0.6; text-decoration: none; color: inherit; }
+      main { flex: 1; min-height: 0; }
+      #welcome { padding: 2rem; }
+      iframe { width: 100%; height: 100%; border: 0; display: block; }
+    </style>
+  </head>
+  <body>
+    <header>
+      {{with .Customization}}{{if .LogoURL}}<img class="logo" src="{{.LogoURL}}" alt="" />{{end}}{{end}}
+      <h1>{{.DisplayName}}</h1>
+      <nav id="apps">
+        {{range .Apps}}<a href="#/{{.ID}}" data-app="{{.ID}}">{{.Label}}</a>
+        {{end}}
+      </nav>
+      <span>Logged in as: <strong id="user">{{.User}}</strong></span>
+      <a href="/_panoptikum/logout">Logout</a>
+      <a class="credit" href="https://github.com/gprossliner/panoptikum" target="_blank" rel="noopener">Built with panoptikum</a>
+    </header>
+    <main>
+      <div id="welcome"><p>Select an app above.</p></div>
+      <iframe id="app-frame" hidden></iframe>
+    </main>
+    <script>
+      // Registered apps: nav id -> base path, server-rendered from this Portal's bound
+      // AppRegistrations (see internal/portalshell) - the nav links above are generated the
+      // same way. Every app is same-origin (path-based routing behind this one host), which
+      // is what makes the iframe/URL-hash sync below possible at all.
+      const apps = {{.AppsJSON}};
+
+      const frame = document.getElementById("app-frame");
+      const welcome = document.getElementById("welcome");
+      const navLinks = document.querySelectorAll("#apps a");
+
+      // Set while we're writing location.hash *from* the iframe's own navigation, so the
+      // hashchange handler below doesn't loop back and reload the iframe it was reflecting.
+      let syncingFromFrame = false;
+
+      function parseHash() {
+        // "#/headlamp/c/main/pods" -> { app: "headlamp", rest: "/c/main/pods" }
+        const match = location.hash.replace(/^#/, "").match(/^\/([^/]+)(\/.*)?$/);
+        return match ? { app: match[1], rest: match[2] || "" } : null;
+      }
+
+      function showWelcome() {
+        navLinks.forEach((a) => a.classList.remove("active"));
+        welcome.hidden = false;
+        frame.hidden = true;
+        frame.removeAttribute("data-app");
+        frame.src = "about:blank";
+      }
+
+      function showApp(app, rest) {
+        const base = apps[app] && apps[app].base;
+        if (!base) {
+          showWelcome();
+          return;
+        }
+        navLinks.forEach((a) => a.classList.toggle("active", a.dataset.app === app));
+        welcome.hidden = true;
+        frame.hidden = false;
+        if (!syncingFromFrame) {
+          // Never drop the trailing slash entirely (rest === "") - a bare "/headlamp"
+          // request falls through to the portal-server's own bare-prefix redirect.
+          frame.src = rest ? base.replace(/\/$/, "") + rest : base;
+        }
+        frame.dataset.app = app;
+      }
+
+      function syncFromHash() {
+        const parsed = parseHash();
+        if (parsed) showApp(parsed.app, parsed.rest);
+        else showWelcome();
+      }
+
+      // Browser Back/Forward (and hash-driven nav link clicks) land here.
+      window.addEventListener("hashchange", syncFromHash);
+      syncFromHash();
+
+      // Reflect the embedded app's own in-app route into the parent's URL hash (deep
+      // links/bookmarks), and keep following it as the operator navigates inside the app -
+      // safe only because the iframe is same-origin (path-based routing, one host for
+      // everything), so contentWindow.location/history are directly readable here.
+      frame.addEventListener("load", () => {
+        const app = frame.dataset.app;
+        const base = app && apps[app] && apps[app].base.replace(/\/$/, "");
+        if (!base) return;
+
+        function reflect() {
+          let inner;
+          try {
+            inner = frame.contentWindow.location;
+          } catch (e) {
+            return; // cross-origin navigation inside the app - can't reflect, ignore
+          }
+          const rest = inner.pathname.startsWith(base) ? inner.pathname.slice(base.length) : "";
+          const newHash = "#/" + app + rest;
+          if (location.hash !== newHash) {
+            syncingFromFrame = true;
+            location.hash = newHash;
+            syncingFromFrame = false;
+          }
+        }
+
+        reflect();
+        try {
+          const win = frame.contentWindow;
+          win.addEventListener("popstate", reflect);
+          win.addEventListener("hashchange", reflect);
+          // React-Router-style SPAs (Headlamp included) navigate via pushState/replaceState,
+          // which - unlike actual browser back/forward - never fires "popstate" on its own.
+          // Patching them is the only way to observe in-app route changes as they happen.
+          ["pushState", "replaceState"].forEach((fn) => {
+            const original = win.history[fn];
+            win.history[fn] = function (...args) {
+              const result = original.apply(this, args);
+              reflect();
+              return result;
+            };
+          });
+        } catch (e) {
+          // cross-origin - no in-app route sync, the app still works, just without deep links
+        }
+      });
+    </script>
+  </body>
+</html>
