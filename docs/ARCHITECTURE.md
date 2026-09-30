@@ -667,20 +667,33 @@ Requirements confirmed against the predecessor Terraform module's
   non-goal of supporting root-only apps. In practice this means never
   touching `r.URL.Path` before proxying.
 - **Bare-prefix redirect**: a request for `/grafana` (no trailing slash)
-  must `301` to `/grafana/` using the *trusted external* scheme/host, not
-  whatever the reverse proxy sees locally — behind a TLS-terminating
-  ingress, the portal-server only sees plain HTTP, so this must come from
-  `X-Forwarded-Proto`/`X-Forwarded-Host`, trusted only from the actual
-  ingress hop (see Security considerations).
+  must `307` to `/grafana/`. Implemented with zero custom code: every
+  `pathPrefix` is validated to end in `/`, so mounting each app's handler
+  on it in a plain `net/http.ServeMux` makes `/grafana` a subtree root —
+  `ServeMux` itself redirects bare subtree-root requests to the
+  trailing-slash form, and does so with a **path-only relative**
+  `Location` header (no scheme/host). The browser resolves it against
+  whatever scheme/host it already used to reach us, so — unlike the
+  original plan — this needs no `X-Forwarded-Proto`/`X-Forwarded-Host`
+  trust boundary at all.
 - **WebSocket passthrough** is required (Headlamp's live pod logs/exec,
   Grafana Live). `net/http/httputil.ReverseProxy` handles `Upgrade`
-  transparently in modern Go — confirm with an explicit test rather than
-  assuming.
+  transparently in modern Go — confirmed with an explicit hijack-based
+  handshake+echo test (`internal/appproxy`), not just assumed.
 - **Trusted header injection** per `AppRegistration`'s resolved
   `AppAuthentication`: strip any client-supplied header with the same
   name before setting the authenticated value (see Security
   considerations — this is the exact bug class that would reopen the
   auth-bypass hole the whole header-injection design exists to close).
+  If a backend's `AppAuthentication` requires a header and the request
+  has no authenticated user in context (i.e. it reached the proxy
+  without going through the auth middleware), the proxy refuses the
+  request (500) rather than forwarding an empty trusted header.
+
+Implemented in `internal/appproxy` (`New(app) (http.Handler, error)`, one
+call per `AppConfig`) and wired into `cmd/server/main.go`'s `newMux`,
+which mounts each app's handler on its `pathPrefix`, wrapped in
+`(*oidcauth.Handler).Middleware`.
 
 ### Portal shell UI
 
@@ -699,11 +712,11 @@ instead of a separate client-side fetch.
 
 ### Build order
 
-1. Session cookie codec (encrypt/sign, pure/unit-testable, no HTTP).
-2. OIDC login flow (`/login` + `/callback`).
-3. Auth middleware.
-4. Reverse proxy per app (exact-URI passthrough, trailing-slash redirect,
-   header injection, WebSocket passthrough).
+1. ~~Session cookie codec (encrypt/sign, pure/unit-testable, no HTTP).~~ Done.
+2. ~~OIDC login flow (`/login` + `/callback`).~~ Done.
+3. ~~Auth middleware.~~ Done.
+4. ~~Reverse proxy per app (exact-URI passthrough, trailing-slash redirect,
+   header injection, WebSocket passthrough).~~ Done.
 5. `/logout`.
 6. Portal shell UI.
 7. Wire into `main.go`; manual smoke test against a real cluster.
@@ -725,9 +738,13 @@ instead of a separate client-side fetch.
   `HttpOnly`/`SameSite=Lax`) should use `coreos/go-oidc` +
   `golang.org/x/oauth2` rather than a hand-rolled implementation, matching
   what oauth2-proxy provided.
-- `X-Forwarded-Proto`/`X-Forwarded-Host` must only be trusted from the
-  actual ingress hop, not from arbitrary clients, if the portal's `Service`
-  is ever reachable other than through the cluster's Ingress.
+- `X-Forwarded-Proto`/`X-Forwarded-Host` are deliberately never read or
+  trusted anywhere in the portal-server: the OIDC redirect URI is built
+  from `Portal.spec.host` (a static config value, not a header), and the
+  reverse proxy's bare-prefix redirect is a path-only relative `Location`
+  (see "Reverse proxy") — so there's no header-spoofing trust boundary to
+  reason about even if the portal's `Service` were ever reachable other
+  than through the cluster's Ingress.
 - Cross-namespace references (Decision 2) mean a namespace can currently
   attach an `AppRegistration` to any `Portal` it can name unless restricted
   via `Portal.spec.allowedAppNamespaces` (Decision 8) — wide open by default,

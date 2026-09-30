@@ -16,8 +16,7 @@ limitations under the License.
 
 // Command server is the portal-server (data plane) binary. Per
 // docs/ARCHITECTURE.md Decision 4, it never talks to the Kubernetes API -
-// it only reads its merged config from a mounted Secret. OIDC login and
-// reverse-proxying are not implemented yet.
+// it only reads its merged config from a mounted Secret.
 package main
 
 import (
@@ -36,6 +35,7 @@ import (
 
 	"github.com/gprossliner/xhdl"
 
+	"github.com/gprossliner/panoptikum/internal/appproxy"
 	"github.com/gprossliner/panoptikum/internal/oidcauth"
 	"github.com/gprossliner/panoptikum/internal/portalconfig"
 )
@@ -72,12 +72,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc(oidcauth.ReservedPrefix+"healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.HandleFunc(oidcauth.LoginPath, auth.HandleLogin)
-	mux.HandleFunc(oidcauth.CallbackPath, auth.HandleCallback)
+	mux, err := newMux(cfg, auth)
+	if err != nil {
+		logger.Error("Failed to initialize", "config", configPath, "error", err)
+		os.Exit(1)
+	}
 
 	srv := &http.Server{Addr: addr, Handler: withAccessLog(mux)}
 
@@ -94,6 +93,31 @@ func main() {
 		logger.Error("portal-server exited", "error", err)
 		os.Exit(1)
 	}
+}
+
+// newMux builds the portal-server's routes: its own reserved routes (login,
+// OIDC callback, health check) plus one reverse-proxying route per app,
+// gated behind auth.Middleware (see docs/ARCHITECTURE.md "Server
+// (portal-server)" > "Reverse proxy"). Each app is mounted as a subtree
+// (its pathPrefix always ends in "/"), so net/http.ServeMux itself handles
+// the bare-prefix -> trailing-slash redirect.
+func newMux(cfg *portalconfig.Config, auth *oidcauth.Handler) (*http.ServeMux, error) {
+	mux := http.NewServeMux()
+	mux.HandleFunc(oidcauth.ReservedPrefix+"healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc(oidcauth.LoginPath, auth.HandleLogin)
+	mux.HandleFunc(oidcauth.CallbackPath, auth.HandleCallback)
+
+	for _, app := range cfg.Apps {
+		proxy, err := appproxy.New(app)
+		if err != nil {
+			return nil, fmt.Errorf("app %q: %w", app.PathPrefix, err)
+		}
+		mux.Handle(app.PathPrefix, auth.Middleware(proxy))
+	}
+
+	return mux, nil
 }
 
 func loadConfig(ctx xhdl.Context, path string) *portalconfig.Config {

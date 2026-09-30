@@ -206,6 +206,14 @@ func (h *Handler) readHandshake(ctx xhdl.Context, r *http.Request) handshakeClai
 // caller-supplied context value can spoof an authenticated user.
 type userContextKey struct{}
 
+// WithUser returns a copy of ctx carrying user, as UserFromContext expects.
+// Middleware is the only production caller; exported so packages consuming
+// UserFromContext (e.g. appproxy) can attach a user in tests without a real
+// session cookie/Handler round trip.
+func WithUser(ctx context.Context, user string) context.Context {
+	return context.WithValue(ctx, userContextKey{}, user)
+}
+
 // UserFromContext returns the user attached by Middleware, or ok=false if
 // the request context has none (i.e. the request didn't go through Middleware).
 func UserFromContext(ctx context.Context) (user string, ok bool) {
@@ -236,8 +244,7 @@ func (h *Handler) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), userContextKey{}, claims.User)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), claims.User)))
 	})
 }
 
