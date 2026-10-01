@@ -137,14 +137,32 @@ spec:
       labels:
         app.kubernetes.io/name: ws-echo
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
+        # jmalloc/echo-server's image has no non-root USER of its own, so
+        # runAsNonRoot (pod-level, above) needs an explicit UID override -
+        # any non-zero UID works, the binary needs no particular identity.
         - name: echo-server
           image: jmalloc/echo-server:latest
+          securityContext:
+            runAsUser: 65532
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           env:
             - name: PORT
               value: "8081"
+        # Unprivileged variant - stock nginx:alpine needs root to write its
+        # default cache/pid/log paths, which `restricted` Pod Security disallows.
         - name: ui
-          image: nginx:alpine
+          image: nginxinc/nginx-unprivileged:alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           ports:
             - name: http
               containerPort: 8080
