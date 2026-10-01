@@ -1,11 +1,12 @@
 # panoptikum smoke test
 
-A manual (not automated, not wired into any Makefile target or CI)
-end-to-end walkthrough: a real `kind` cluster, a real Ingress, a real
-OIDC login round trip against [nanoidp](https://github.com/cdelmonte-zg/nanoidp),
-and a real session cookie reaching a minimal backend app through the
-portal-server's reverse proxy. See `docs/ARCHITECTURE.md` "Smoke Testing"
-for the design rationale (why each piece is built the way it is).
+A manual, not-wired-into-CI end-to-end walkthrough: a real `kind`
+cluster, a real Ingress, a real OIDC login round trip against
+[nanoidp](https://github.com/cdelmonte-zg/nanoidp), and a real session
+cookie reaching a minimal backend app through the portal-server's
+reverse proxy. See `docs/ARCHITECTURE.md` "Smoke Testing" for the design
+rationale (why each piece is built the way it is). A `Makefile` here
+automates the steps below - see "Quick start" first.
 
 Everything here is disposable demo material for a local `kind` cluster -
 including the committed secret values - never point this at anything
@@ -14,9 +15,23 @@ real.
 ## Prerequisites
 
 - `kind`, `kubectl`, `kustomize` (or a `kubectl` recent enough to have it
-  built in, `kubectl kustomize ...`).
+  built in, `kubectl kustomize ...`), `jq`, `awk`.
 - A real browser reachable from wherever this devcontainer/VS Code is
   running (see "Devcontainer networking" below if that's not obvious).
+
+## Quick start
+
+```bash
+cd test/smoke-test
+make cluster       # 1. kind cluster + ingress-nginx
+make image         # 2. build+load the operator image, install+deploy
+make fix-coredns   # 3. patch in-cluster DNS for nanoidp's hostname
+make apply         # 4. apply the example CRs, wait for pods ready
+```
+
+or just `make` to run all four. `make clean` deletes the whole cluster
+afterwards. The numbered sections below explain what each target does
+and why, for troubleshooting or running the steps by hand.
 
 ## 1. Create the cluster and install ingress-nginx
 
@@ -114,6 +129,12 @@ app's plain-text echo, including the `X-Forwarded-User` header the
 portal-server injected - proof the whole chain (OIDC login → session
 cookie → auth middleware → reverse proxy → trusted header injection)
 worked end to end.
+
+Click "Grafana" in the nav for a more realistic example: a real Grafana
+instance (no PVC, no login form) that trusts the same
+`X-Forwarded-User` header via its own `auth.proxy` support
+(`GF_AUTH_PROXY_*` env vars, see `grafana.yaml`) - you're logged in as
+whichever persona you picked, auto-provisioned on first visit.
 
 Visit `/_panoptikum/logout`, then log in again as the *other* persona to
 see the header change.

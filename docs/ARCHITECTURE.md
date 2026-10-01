@@ -742,8 +742,8 @@ behind `(*oidcauth.Handler).Middleware` like every other proxied route.
 a real browser logged in via nanoidp's persona picker, switched between
 two users, and saw the reverse proxy inject the correct
 `X-Forwarded-User` header for each. See "Validated outcome" below. A
-manual (not automated, not wired into any Makefile target or CI) example
-under `test/smoke-test/` (moved from `examples/smoke-test/`) that
+manual (not wired into CI) example under `test/smoke-test/` (moved from
+`examples/smoke-test/`, its own `Makefile` automates the steps) that
 exercises the whole stack end to end in a local `kind` cluster: real
 Ingress, a real (if minimal) backend app, a real OIDC login round trip,
 and a real session cookie — the thing tier-2/3 `envtest` structurally

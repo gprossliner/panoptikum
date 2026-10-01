@@ -62,6 +62,36 @@ spec:
       name: sample-app
       port: 80
 ---
+# Vouches for the logged-in user to Grafana via the same trusted-header
+# mechanism, read by Grafana's own [auth.proxy] config (grafana.yaml).
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: AppAuthentication
+metadata:
+  name: grafana
+spec:
+  type: ProxyAuthentication
+  proxyAuthentication:
+    headers:
+      X-Forwarded-User: $user
+---
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: AppRegistration
+metadata:
+  name: grafana
+spec:
+  portalRef:
+    name: portal
+  appAuthenticationRef:
+    name: grafana
+  displayName: Grafana
+  routing:
+    pathPrefix: /grafana/
+  sortOrder: 20
+  backend:
+    service:
+      name: grafana
+      port: 80
+---
 # No ingress.tls - ingress-nginx's own default self-signed certificate
 # terminates HTTPS for any host that hits it without a matching TLS
 # Secret, which is all the portal-server's Secure session cookie needs

@@ -7,4 +7,5 @@ resources:
 - namespace.yaml
 - nanoidp.yaml
 - sample-app.yaml
+- grafana.yaml
 - panoptikum.yaml
