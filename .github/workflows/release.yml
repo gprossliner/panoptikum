@@ -86,8 +86,14 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@v4.1.2
 
+      # `make build-installer` runs `kustomize edit set image`, which
+      # edits the tracked config/manager/kustomization.yaml in place -
+      # restore it so GoReleaser's git-dirty check doesn't fail. The
+      # actual output (dist/install.yaml) is gitignored and untouched.
       - name: Render install manifest
-        run: make build-installer IMG=${{ env.IMAGE }}:${{ github.ref_name }}
+        run: |
+          make build-installer IMG=${{ env.IMAGE }}:${{ github.ref_name }}
+          git checkout -- config/manager/kustomization.yaml
 
       # Builds operator/server natively per-arch (no QEMU), then builds,
       # pushes, and signs the multi-arch image via the dockers_v2/
