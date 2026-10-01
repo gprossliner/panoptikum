@@ -5,6 +5,15 @@ metadata:
     control-plane: controller-manager
     app.kubernetes.io/name: panoptikum
     app.kubernetes.io/managed-by: kustomize
+    # Verified clean (no warnings) via `kubectl label --dry-run=server`
+    # before committing this - see issue #7. Not enforceable via the Helm
+    # chart (which has no Namespace template of its own, so never touches
+    # an existing namespace's labels) - this is the kustomize/install.yaml
+    # path's signal of the intended security posture, not a hard guarantee
+    # for users who point it at a pre-existing namespace of their own.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
   name: system
 ---
 apiVersion: apps/v1
