@@ -92,6 +92,36 @@ spec:
       name: grafana
       port: 80
 ---
+# Vouches for the logged-in user to ws-echo via the same trusted-header
+# mechanism - ws-echo just echoes it back, same as sample-app.
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: AppAuthentication
+metadata:
+  name: ws-echo
+spec:
+  type: ProxyAuthentication
+  proxyAuthentication:
+    headers:
+      X-Forwarded-User: $user
+---
+apiVersion: panoptikum.panoptikum.dev/v1alpha1
+kind: AppRegistration
+metadata:
+  name: ws-echo
+spec:
+  portalRef:
+    name: portal
+  appAuthenticationRef:
+    name: ws-echo
+  displayName: WebSocket Echo
+  routing:
+    pathPrefix: /ws/
+  sortOrder: 30
+  backend:
+    service:
+      name: ws-echo
+      port: 80
+---
 # No ingress.tls - ingress-nginx's own default self-signed certificate
 # terminates HTTPS for any host that hits it without a matching TLS
 # Secret, which is all the portal-server's Secure session cookie needs

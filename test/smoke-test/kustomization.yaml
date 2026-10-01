@@ -8,4 +8,5 @@ resources:
 - nanoidp.yaml
 - sample-app.yaml
 - grafana.yaml
+- ws-echo.yaml
 - panoptikum.yaml

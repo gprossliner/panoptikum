@@ -20,6 +20,7 @@ limitations under the License.
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -193,4 +194,15 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(b)
 	w.written += int64(n)
 	return n, err
+}
+
+// Hijack lets WebSocket upgrades (httputil.ReverseProxy requires
+// hijacking the connection, see internal/appproxy) pass through this
+// logging wrapper instead of failing with "non-Hijacker ResponseWriter".
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("underlying ResponseWriter does not support hijacking")
+	}
+	return hj.Hijack()
 }

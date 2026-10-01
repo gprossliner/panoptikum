@@ -1,0 +1,175 @@
+# A third example app: jmalloc/echo-server
+# (https://github.com/jmalloc/echo-server), a tiny (~2MB) HTTP+WebSocket
+# echo server built specifically for testing proxies - echoes request
+# headers back as plain text on normal HTTP requests, and echoes back
+# whatever message it receives on an upgraded WebSocket connection. It has
+# no UI of its own, so a second ("ui") container in the same Pod - plain
+# nginx:alpine, no custom image build, same pattern as sample-app.yaml -
+# serves a small static page whose JS opens a WebSocket and sends a
+# message every 2s, rendering each round trip in the page body. This
+# proves the portal-server's WebSocket passthrough
+# (internal/appproxy, normally only exercised by TestWebSocketPassthrough
+# as a unit test) with a real, continuously-running browser round trip,
+# not just a one-off manual connection.
+#
+# Both containers share the Pod's network namespace, so nginx reaches
+# echo-server at 127.0.0.1 without a second Service - only nginx's port
+# is exposed (ws-echo Service below), echo-server is otherwise private to
+# the Pod. The portal-server's reverse proxy forwards requests unmodified
+# (no path rewriting, see internal/appproxy/appproxy.go), so nginx's
+# location blocks below match the full "/ws/..." paths as the browser
+# sends them under our pathPrefix (panoptikum.yaml).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ws-echo-ui
+data:
+  default.conf: |
+    server {
+      listen 8080;
+
+      # Any other path (in practice just "/ws/", our pathPrefix root)
+      # serves the static demo page below.
+      location / {
+        root /usr/share/nginx/html;
+        try_files /index.html =404;
+      }
+
+      # Plain HTTP proxy to echo-server, for the page to confirm
+      # X-Forwarded-User was injected (same proof as sample-app).
+      location = /ws/headers {
+        proxy_pass http://127.0.0.1:8081;
+      }
+
+      # WebSocket proxy to echo-server - needs Upgrade/Connection
+      # forwarded for the handshake to succeed.
+      location = /ws/socket {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+      }
+    }
+  index.html: |
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>WebSocket Echo</title>
+      </head>
+      <body>
+        <h1>WebSocket Echo</h1>
+        <p>
+          Sends a timestamp every 2s over a WebSocket proxied through the
+          portal-server to jmalloc/echo-server, and shows the last 10
+          round trips - proof of live WebSocket passthrough, not just a
+          one-off connection.
+        </p>
+        <pre id="headers">(fetching X-Forwarded-User...)</pre>
+        <ul id="log"></ul>
+        <style>
+          body {
+            font-family: system-ui, sans-serif;
+            max-width: 60rem;
+            margin: 1rem auto;
+            padding: 0 1rem;
+            color: #222;
+          }
+          pre {
+            background: #f4f4f4;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 0.75rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-size: 0.85rem;
+          }
+          #log {
+            font-family: ui-monospace, monospace;
+            font-size: 0.85rem;
+            padding-left: 1.25rem;
+          }
+        </style>
+        <script>
+          const log = document.getElementById("log");
+          function appendLog(text) {
+            const li = document.createElement("li");
+            li.textContent = new Date().toISOString() + " - " + text;
+            log.prepend(li);
+            while (log.children.length > 10) log.removeChild(log.lastChild);
+          }
+
+          fetch("headers")
+            .then((r) => r.text())
+            .then((text) => {
+              document.getElementById("headers").textContent = text;
+            });
+
+          const proto = location.protocol === "https:" ? "wss:" : "ws:";
+          const ws = new WebSocket(proto + "//" + location.host + "/ws/socket");
+          ws.onopen = () => appendLog("connected");
+          ws.onclose = () => appendLog("disconnected");
+          ws.onerror = () => appendLog("error");
+          ws.onmessage = (ev) => appendLog("echo: " + ev.data);
+          setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send("ping @ " + new Date().toISOString());
+            }
+          }, 2000);
+        </script>
+      </body>
+    </html>
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ws-echo
+  labels:
+    app.kubernetes.io/name: ws-echo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ws-echo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ws-echo
+    spec:
+      containers:
+        - name: echo-server
+          image: jmalloc/echo-server:latest
+          env:
+            - name: PORT
+              value: "8081"
+        - name: ui
+          image: nginx:alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+            - name: conf
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
+              readOnly: true
+      volumes:
+        - name: conf
+          configMap:
+            name: ws-echo-ui
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ws-echo
+spec:
+  selector:
+    app.kubernetes.io/name: ws-echo
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

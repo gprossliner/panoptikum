@@ -139,6 +139,17 @@ whichever persona you picked, auto-provisioned on first visit.
 Visit `/_panoptikum/logout`, then log in again as the *other* persona to
 see the header change.
 
+### WebSocket test
+
+Click "WebSocket Echo" in the nav
+([jmalloc/echo-server](https://github.com/jmalloc/echo-server) behind a
+small `nginx` sidecar, see `ws-echo.yaml`). The embedded iframe shows the
+`X-Forwarded-User` header (same proof as Sample App) and a live log of
+round trips over a real WebSocket connection, one every 2 seconds - proof
+of the reverse proxy's WebSocket passthrough (`internal/appproxy`,
+normally only exercised by `TestWebSocketPassthrough` as a unit test)
+staying open continuously, not just a one-off connection.
+
 ## Devcontainer networking
 
 If you're running this inside this repo's own `.devcontainer`, one more
