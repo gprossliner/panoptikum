@@ -18,12 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -33,7 +33,7 @@ jobs:
       # off go.mod's k8s.io/api version) in one combined cache, since
       # both lint and test run in this same job/machine.
       - name: Cache bin/ (golangci-lint + envtest K8s binaries)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: bin
           key: verify-bin-${{ runner.os }}-${{ hashFiles('.custom-gcl.yml', 'go.mod') }}
