@@ -743,13 +743,14 @@ a real browser logged in via nanoidp's persona picker, switched between
 two users, and saw the reverse proxy inject the correct
 `X-Forwarded-User` header for each. See "Validated outcome" below. A
 manual (not automated, not wired into any Makefile target or CI) example
-under `examples/smoke-test/` that exercises the whole stack end to end in
-a local `kind` cluster: real Ingress, a real (if minimal) backend app, a
-real OIDC login round trip, and a real session cookie — the thing
-tier-2/3 `envtest` structurally cannot prove, and true e2e (`test/e2e/`)
-has deliberately deferred. Not a replacement for either; a README-driven
-walkthrough for a human, and a living reference for anyone (including a
-future e2e test) that needs a complete, working example CR set.
+under `test/smoke-test/` (moved from `examples/smoke-test/`) that
+exercises the whole stack end to end in a local `kind` cluster: real
+Ingress, a real (if minimal) backend app, a real OIDC login round trip,
+and a real session cookie — the thing tier-2/3 `envtest` structurally
+cannot prove, and true e2e (`test/e2e/`) has deliberately deferred. Not a
+replacement for either; a README-driven walkthrough for a human, and a
+living reference for anyone (including a future e2e test) that needs a
+complete, working example CR set.
 
 ### Components
 
@@ -886,7 +887,8 @@ a demo meant to be left running and poked at than cluster-wide-but-durable.
 ### Resolved
 
 1. ~~`examples/` as a new top-level directory~~ — resolved: yes.
-2. ~~Directory/example name~~ — resolved: `examples/smoke-test/`.
+2. ~~Directory/example name~~ — resolved: `examples/smoke-test/` (later
+   moved to `test/smoke-test/`).
 3. ~~CoreDNS patch vs. `hostAliases`~~ — resolved above: CoreDNS patch,
    `hostAliases` doesn't survive `writeDeployment`'s full overwrite.
    README-documented `kubectl` recipe (cluster-specific ClusterIP captured

@@ -124,3 +124,9 @@ Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), Decision 5.
 Not yet available. A Helm chart is planned, which will also optionally
 bootstrap a "default" `Portal` + pre-provisioned `Secret`. Exact bootstrap
 semantics are still to be decided.
+
+## End-to-end example
+
+[test/smoke-test/](test/smoke-test/) contains a full, manual walkthrough
+of the whole stack (operator, portal-server, OIDC login, reverse proxy)
+running in a local `kind` cluster. See its README for setup steps.

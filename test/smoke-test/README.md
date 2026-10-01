@@ -21,7 +21,7 @@ real.
 ## 1. Create the cluster and install ingress-nginx
 
 ```bash
-kind create cluster --config examples/smoke-test/kind-config.yaml
+kind create cluster --config test/smoke-test/kind-config.yaml
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 kubectl wait --namespace ingress-nginx \
   --for=condition=ready pod \
@@ -92,7 +92,7 @@ below for why.)
 ## 4. Apply the example
 
 ```bash
-kubectl apply -k examples/smoke-test/
+kubectl apply -k test/smoke-test/
 ```
 
 Wait for everything to come up:

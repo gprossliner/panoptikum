@@ -27,3 +27,7 @@ go.work
 
 # Kubeconfig might contain secrets
 *.kubeconfig
+
+# AI agent session notes - workspace-local copy of /memories/, kept so it
+# survives devcontainer rebuilds; deliberately never committed.
+.agent-memory.md

@@ -33,11 +33,11 @@
   "forwardPorts": [80, 443],
   "portsAttributes": {
     "80": {
-      "label": "examples/smoke-test ingress-nginx (HTTP)",
+      "label": "test/smoke-test ingress-nginx (HTTP)",
       "onAutoForward": "silent"
     },
     "443": {
-      "label": "examples/smoke-test ingress-nginx (HTTPS)",
+      "label": "test/smoke-test ingress-nginx (HTTPS)",
       "onAutoForward": "silent"
     }
   },
