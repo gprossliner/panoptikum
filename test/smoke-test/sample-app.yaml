@@ -12,7 +12,7 @@ metadata:
 data:
   default.conf: |
     server {
-      listen 80;
+      listen 8080;
 
       location / {
         default_type text/plain;
@@ -36,12 +36,23 @@ spec:
       labels:
         app.kubernetes.io/name: sample-app
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
+        # Unprivileged variant (listens on 8080, not 80) - stock nginx:alpine
+        # needs root to write its default cache/pid/log paths, which
+        # `restricted` Pod Security disallows.
         - name: nginx
-          image: nginx:alpine
+          image: nginxinc/nginx-unprivileged:alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           ports:
             - name: http
-              containerPort: 80
+              containerPort: 8080
           volumeMounts:
             - name: conf
               mountPath: /etc/nginx/conf.d/default.conf
