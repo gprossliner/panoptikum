@@ -38,8 +38,17 @@ spec:
             - name: http
               containerPort: 3000
           env:
+            # root_url is a literal external URL, not %(protocol)s/
+            # %(domain)s placeholders: those reflect Grafana's own
+            # listener config (server.protocol), and setting that to
+            # https would make Grafana expect its own TLS cert/key, which
+            # we don't have - TLS terminates at the Ingress, Grafana
+            # itself only ever speaks plain HTTP. A literal https root_url
+            # also fixes Grafana Live's websocket handshake, which
+            # otherwise rejects the browser's Origin header with a 403
+            # (derived appUrl wouldn't match).
             - name: GF_SERVER_ROOT_URL
-              value: "%(protocol)s://%(domain)s/grafana/"
+              value: https://portal.127.0.0.1.nip.io/grafana/
             - name: GF_SERVER_SERVE_FROM_SUB_PATH
               value: "true"
             # Trusts the X-Forwarded-User header injected by
@@ -60,11 +69,9 @@ spec:
               value: "true"
             - name: GF_AUTH_DISABLE_LOGIN_FORM
               value: "true"
-            # Grafana's default X-Frame-Options: deny would block the
-            # portal shell's iframe embedding (sample-app's nginx sets no
-            # such header, so this wasn't needed there).
-            - name: GF_SECURITY_ALLOW_EMBEDDING
-              value: "true"
+            # No GF_SECURITY_ALLOW_EMBEDDING needed: the portal's reverse
+            # proxy rewrites Grafana's default X-Frame-Options: deny to
+            # SAMEORIGIN automatically (see internal/appproxy/appproxy.go).
 ---
 apiVersion: v1
 kind: Service

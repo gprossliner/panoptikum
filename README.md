@@ -183,15 +183,22 @@ ingress:
 
 "grafana.ini":
   server:
-    root_url: "%(protocol)s://%(domain)s/grafana/"
+    # a literal external URL, not %(protocol)s/%(domain)s placeholders -
+    # those reflect Grafana's own listener config (server.protocol),
+    # and setting that to https would make Grafana expect its own TLS
+    # cert/key, which it doesn't have here (TLS terminates at the
+    # Ingress, Grafana itself only ever speaks plain HTTP). A literal
+    # https root_url also fixes Grafana Live's websocket handshake,
+    # which otherwise rejects the browser's Origin header with a 403.
+    root_url: https://panoptikum.example.com/grafana/
     serve_from_sub_path: true
   auth.proxy:
     enabled: true
     header_name: X-Web-User
     header_property: username
     auto_sign_up: true
-  security:
-    allow_embedding: true   # otherwise X-Frame-Options: deny blocks the portal's <iframe>
+  # no security.allow_embedding needed - the portal rewrites Grafana's
+  # default X-Frame-Options: deny to SAMEORIGIN automatically
 ```
 
 Matching `AppAuthentication`:
