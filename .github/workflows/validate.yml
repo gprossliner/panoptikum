@@ -54,11 +54,15 @@ jobs:
       # not covered by actions/setup-go's go.sum-keyed cache above) on
       # every run. controller-gen/setup-envtest don't need this anymore -
       # they're go.mod tool dependencies now, already covered by go.sum.
+      #
+      # Keyed only on .custom-gcl.yml (pinned version + plugin list),
+      # NOT the whole Makefile - unrelated Makefile edits (e.g. to other
+      # targets) would otherwise invalidate this cache for no reason.
       - name: Cache golangci-lint binary (incl. custom plugin build)
         uses: actions/cache@v4
         with:
           path: bin
-          key: golangci-lint-bin-${{ runner.os }}-${{ hashFiles('Makefile', '.custom-gcl.yml') }}
+          key: golangci-lint-bin-${{ runner.os }}-${{ hashFiles('.custom-gcl.yml') }}
 
       # actions/setup-go above already caches $GOMODCACHE/$GOCACHE; this
       # additionally caches golangci-lint's own incremental analysis
