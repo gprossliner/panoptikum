@@ -1,0 +1,53 @@
+name: Verify
+
+# Experimental alternative to validate.yml: everything in a single job on
+# one machine, instead of separate setup/lint/test jobs. The idea: since
+# a single job already runs sequentially on one machine, lint and test
+# naturally share the same warm $GOMODCACHE/$GOCACHE (via actions/setup-go's
+# go.sum-keyed cache) and the same bin/ directory below for free - no need
+# for a dedicated cache-warming job to avoid the multi-job parallel
+# cache-miss race that validate.yml's `setup` job exists to avoid. Compare
+# total wall-clock time and simplicity against validate.yml.
+on:
+  push:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  verify:
+    permissions:
+      contents: read
+    name: Lint, Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # Everything the Makefile manages under bin/ (golangci-lint,
+      # including its custom-plugin build - see .custom-gcl.yml - and
+      # envtest's downloaded K8s API server/etcd/kubectl binaries, keyed
+      # off go.mod's k8s.io/api version) in one combined cache, since
+      # both lint and test run in this same job/machine.
+      - name: Cache bin/ (golangci-lint + envtest K8s binaries)
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: verify-bin-${{ runner.os }}-${{ hashFiles('.custom-gcl.yml', 'go.mod') }}
+
+      - name: Running Tests
+        run: |
+          go mod tidy
+          make test-ci
+
+      - name: Check linter configuration
+        run: make lint-config
+      - name: Run linter
+        run: make lint

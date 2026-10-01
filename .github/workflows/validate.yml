@@ -64,17 +64,6 @@ jobs:
           path: bin
           key: golangci-lint-bin-${{ runner.os }}-${{ hashFiles('.custom-gcl.yml') }}
 
-      # actions/setup-go above already caches $GOMODCACHE/$GOCACHE; this
-      # additionally caches golangci-lint's own incremental analysis
-      # cache, which isn't covered by that.
-      - name: Cache golangci-lint analysis cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/golangci-lint
-          key: golangci-lint-${{ runner.os }}-${{ hashFiles('go.sum', '.golangci.yml') }}
-          restore-keys: |
-            golangci-lint-${{ runner.os }}-
-
       - name: Check linter configuration
         run: make lint-config
       - name: Run linter
