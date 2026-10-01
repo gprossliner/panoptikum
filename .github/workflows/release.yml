@@ -104,7 +104,7 @@ jobs:
             ${{ env.IMAGE }}:latest
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v4.1.2
 
       # Keyless: no key material to manage, identity is this workflow's
       # GitHub OIDC token, verifiable via the public Rekor transparency log.
@@ -172,7 +172,7 @@ jobs:
         run: helm push "/tmp/chart-out/panoptikum-${VERSION#v}.tgz" "oci://ghcr.io/gprossliner/charts"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v4.1.2
 
       # Keyless, same as the image above - appended to the registry
       # alongside the chart, verifiable via `cosign verify`.
