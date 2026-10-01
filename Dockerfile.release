@@ -1,0 +1,14 @@
+# Release-only Dockerfile: GoReleaser cross-compiles operator/server natively
+# (no QEMU, unlike `docker buildx build --platform=...` on the main
+# Dockerfile, which runs `go build` itself under emulation for foreign
+# arches) and copies the prebuilt per-platform binaries in here - no RUN
+# instructions, so buildx can assemble this image for any platform
+# without emulation either. Kept separate from the main Dockerfile, which
+# still builds from source for local/smoke-test/e2e (`make
+# docker-build`/`docker-buildx`).
+FROM gcr.io/distroless/static:nonroot
+ARG TARGETPLATFORM
+WORKDIR /
+COPY $TARGETPLATFORM/operator /operator
+COPY $TARGETPLATFORM/server /server
+USER 65532:65532
