@@ -43,9 +43,7 @@ jobs:
           key: verify-bin-${{ runner.os }}-${{ hashFiles('.custom-gcl.yml', 'go.mod') }}
 
       - name: Running Tests
-        run: |
-          go mod tidy
-          make test-ci
+        run: make test-ci
 
       - name: Check linter configuration
         run: make lint-config
