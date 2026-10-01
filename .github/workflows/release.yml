@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  IMAGE: ghcr.io/gprossliner/panoptikum
+
+jobs:
+  # Gates the release job on the tagged commit (not the tag-push event's own
+  # redundant Verify run, which may still be in flight) having an earlier
+  # successful Verify run - e.g. from when it was pushed/merged to main.
+  check-verify:
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify tagged commit passed Verify workflow
+        uses: actions/github-script@v9
+        env:
+          TAG_COMMIT_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const tagCommitSha = process.env.TAG_COMMIT_SHA;
+
+            core.info(`Release tag ${context.ref} resolves to commit ${tagCommitSha}`);
+
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: 'verify.yml',
+              event: 'push',
+              per_page: 100
+            });
+
+            const matchingRun = runs.data.workflow_runs.find(run =>
+              run.head_sha === tagCommitSha
+              && run.status === 'completed'
+              && run.conclusion === 'success'
+            );
+
+            if (!matchingRun) {
+              core.setFailed(
+                `No successful Verify run found for commit ${tagCommitSha}. ` +
+                `Release aborted for tag ${context.ref}.`
+              );
+              return;
+            }
+
+            core.info(`Verified by run: ${matchingRun.html_url}`);
+
+  release:
+    needs: check-verify
+    permissions:
+      contents: write  # create the GitHub Release
+      packages: write  # push to ghcr.io
+      id-token: write  # cosign keyless signing (OIDC)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history, needed for the changelog
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Built directly (not via GoReleaser's dockers pipe) since the
+      # existing Dockerfile does `go build` itself inside the image -
+      # GoReleaser's docker builder expects a prebuilt binary instead.
+      # sbom/provenance use buildx's native BuildKit attestations.
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          sbom: true
+          provenance: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.ref_name }}
+            ${{ env.IMAGE }}:latest
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4
+
+      # Keyless: no key material to manage, identity is this workflow's
+      # GitHub OIDC token, verifiable via the public Rekor transparency log.
+      - name: Sign image (cosign keyless)
+        run: cosign sign --yes "${{ env.IMAGE }}@${{ steps.build.outputs.digest }}"
+
+      - name: Render install manifest
+        run: make build-installer IMG=${{ env.IMAGE }}:${{ github.ref_name }}
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: '~> 2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
