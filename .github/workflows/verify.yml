@@ -1,13 +1,9 @@
 name: Verify
 
-# Experimental alternative to validate.yml: everything in a single job on
-# one machine, instead of separate setup/lint/test jobs. The idea: since
-# a single job already runs sequentially on one machine, lint and test
+# Single job: lint and test run sequentially on one machine, so they
 # naturally share the same warm $GOMODCACHE/$GOCACHE (via actions/setup-go's
-# go.sum-keyed cache) and the same bin/ directory below for free - no need
-# for a dedicated cache-warming job to avoid the multi-job parallel
-# cache-miss race that validate.yml's `setup` job exists to avoid. Compare
-# total wall-clock time and simplicity against validate.yml.
+# go.sum-keyed cache) and the same bin/ directory below for free - no
+# separate cache-warming job needed.
 on:
   push:
   pull_request:
