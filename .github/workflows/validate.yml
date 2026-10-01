@@ -93,12 +93,13 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # controller-gen and setup-envtest are go.mod tool dependencies
-      # (see go.mod's `tool` block), so their own deps are already
-      # covered by the go.sum-keyed cache above. setup-envtest's
-      # downloaded K8s API server/etcd/kubectl binaries are NOT part of
-      # go.sum though (fetched separately, not via `go install`), so
-      # that still needs its own cache.
+      # setup-envtest is a go.mod tool dependency (see go.mod's `tool`
+      # block), so its own deps are already covered by the go.sum-keyed
+      # cache above. Its downloaded K8s API server/etcd/kubectl binaries
+      # are NOT part of go.sum though (fetched separately, not via `go
+      # install`), so that still needs its own cache. controller-gen
+      # isn't needed here at all - `make test-ci` skips
+      # manifests/generate (see Makefile comment).
       - name: Cache envtest K8s binaries
         uses: actions/cache@v4
         with:
@@ -108,4 +109,4 @@ jobs:
       - name: Running Tests
         run: |
           go mod tidy
-          make test
+          make test-ci

@@ -60,7 +60,20 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
+test: manifests generate fmt vet setup-envtest ## Run tests (regenerates manifests/code first to guard against drift).
+	$(MAKE) test-run
+
+# CI-only: skips manifests/generate (confirmed a no-op against the
+# committed config/crd/bases, config/rbac/role.yaml, and
+# zz_generated.deepcopy.go - see repo history), so it doesn't need
+# controller-gen installed at all. Local `make test` keeps the full
+# regenerate-first safety net.
+.PHONY: test-ci
+test-ci: fmt vet setup-envtest ## Run tests without regenerating manifests/code first (CI only).
+	$(MAKE) test-run
+
+.PHONY: test-run
+test-run:
 	KUBEBUILDER_ASSETS="$(shell go tool setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test -v $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
