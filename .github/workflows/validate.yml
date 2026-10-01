@@ -46,6 +46,20 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # The Makefile's go-install-tool helper skips reinstalling a tool
+      # (golangci-lint, including its custom-plugin build - see
+      # .custom-gcl.yml) when the exact pinned-version binary under bin/
+      # already exists, so caching bin/ avoids a slow `go install` +
+      # plugin rebuild (golangci-lint's own separate dependency graph -
+      # not covered by actions/setup-go's go.sum-keyed cache above) on
+      # every run. controller-gen/setup-envtest don't need this anymore -
+      # they're go.mod tool dependencies now, already covered by go.sum.
+      - name: Cache golangci-lint binary (incl. custom plugin build)
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: golangci-lint-bin-${{ runner.os }}-${{ hashFiles('Makefile', '.custom-gcl.yml') }}
+
       # actions/setup-go above already caches $GOMODCACHE/$GOCACHE; this
       # additionally caches golangci-lint's own incremental analysis
       # cache, which isn't covered by that.
@@ -78,6 +92,18 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+
+      # controller-gen and setup-envtest are go.mod tool dependencies
+      # (see go.mod's `tool` block), so their own deps are already
+      # covered by the go.sum-keyed cache above. setup-envtest's
+      # downloaded K8s API server/etcd/kubectl binaries are NOT part of
+      # go.sum though (fetched separately, not via `go install`), so
+      # that still needs its own cache.
+      - name: Cache envtest K8s binaries
+        uses: actions/cache@v4
+        with:
+          path: bin/k8s
+          key: envtest-k8s-${{ runner.os }}-${{ hashFiles('go.mod') }}
 
       - name: Running Tests
         run: |
