@@ -3,8 +3,10 @@ name: panoptikum
 description: A Helm chart to distribute panoptikum
 type: application
 
-version: 0.1.0
-appVersion: "0.1.0"
+# Committed as a placeholder - the real version is set via `--version` on
+# `helm package`/`helm push` at release time, never bumped here. No
+# appVersion: the chart version IS the release version, image tag included.
+version: 0.0.0
 
 keywords:
   - kubernetes
