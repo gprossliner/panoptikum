@@ -122,3 +122,61 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  package-and-push-chart:
+    # Depends on `release` (not just `check-verify`) so a chart is never
+    # pushed unless its matching runtime image push already succeeded.
+    needs: [check-verify, release]
+    permissions:
+      contents: read
+      packages: write  # push to ghcr.io
+      id-token: write  # cosign keyless signing (OIDC)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      # Helm's OCI client reads the same credential store as docker
+      # (~/.docker/config.json) - this is a separate job/runner from
+      # `release` above though, so its login doesn't carry over here.
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Chart.yaml keeps a committed 0.0.0 placeholder, never rewritten -
+      # --version overrides it for this package only. Also pin the
+      # manager image repository/tag that ships as the chart's default,
+      # since Chart.yaml has no appVersion for manager.yaml's
+      # `.Values.manager.image.tag | default .Chart.AppVersion` to fall
+      # back to - without this, a plain `helm install` would resolve an
+      # empty image tag.
+      - name: Package chart
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          yq -i '.manager.image.repository = env(IMAGE) | .manager.image.tag = env(VERSION)' charts/chart/values.yaml
+          mkdir -p /tmp/chart-out
+          helm package charts/chart --version "${VERSION#v}" --destination /tmp/chart-out
+
+      - name: Push chart
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: helm push "/tmp/chart-out/panoptikum-${VERSION#v}.tgz" "oci://ghcr.io/gprossliner/charts"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4
+
+      # Keyless, same as the image above - appended to the registry
+      # alongside the chart, verifiable via `cosign verify`.
+      - name: Sign chart (cosign keyless)
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: cosign sign --yes "ghcr.io/gprossliner/charts/panoptikum:${VERSION#v}"

@@ -6,6 +6,10 @@ cliVersion: 4.16.0
 domain: panoptikum.dev
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  helm.kubebuilder.io/v2-alpha:
+    manifests: dist/install.yaml
+    output: charts
 projectName: panoptikum
 repo: github.com/gprossliner/panoptikum
 resources:

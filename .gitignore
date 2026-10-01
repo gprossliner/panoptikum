@@ -16,6 +16,9 @@ Dockerfile.cross
 # Go workspace file
 go.work
 
+# kubebuilder/kustomize build output (regenerated via `make build-installer`)
+dist/
+
 # Kubernetes Generated files - skip generated files, except for vendored files
 !vendor/**/zz_generated.*
 

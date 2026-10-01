@@ -1,0 +1,222 @@
+{{- if .Values.crd.enabled }}
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    {{- if .Values.crd.keep }}
+    "helm.sh/resource-policy": keep
+    {{- end }}
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: appregistrations.panoptikum.panoptikum.dev
+spec:
+  group: panoptikum.panoptikum.dev
+  names:
+    kind: AppRegistration
+    listKind: AppRegistrationList
+    plural: appregistrations
+    singular: appregistration
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: AppRegistration is the Schema for the appregistrations API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of AppRegistration
+            properties:
+              appAuthenticationRef:
+                description: |-
+                  appAuthenticationRef references how the portal vouches for the
+                  logged-in user to this app.
+                properties:
+                  name:
+                    description: name of the referenced object.
+                    type: string
+                  namespace:
+                    default: ""
+                    description: |-
+                      namespace of the referenced object. Defaults to the referencing object's
+                      own namespace when omitted. Explicit default (rather than merely
+                      x-kubernetes-list-map-key on status back-ref lists (Decision 5), which
+                      the Kubernetes API server requires to have a default or be required.
+                    type: string
+                required:
+                - name
+                type: object
+              backend:
+                description: backend selects the app's backend.
+                properties:
+                  service:
+                    description: service is the in-cluster Service backend. Only supported
+                      backend kind for now.
+                    properties:
+                      name:
+                        description: name of the Service.
+                        type: string
+                      namespace:
+                        default: ""
+                        description: namespace of the Service. Defaults to the AppRegistration's
+                          own namespace when omitted.
+                        type: string
+                      port:
+                        description: port is the Service port to route to.
+                        format: int32
+                        maximum: 65535
+                        minimum: 1
+                        type: integer
+                    required:
+                    - name
+                    - port
+                    type: object
+                required:
+                - service
+                type: object
+              displayName:
+                description: displayName is shown in the Portal's nav. Defaults to
+                  metadata.name when omitted.
+                type: string
+              portalRef:
+                description: portalRef references the Portal this app is registered
+                  with.
+                properties:
+                  name:
+                    description: name of the referenced object.
+                    type: string
+                  namespace:
+                    default: ""
+                    description: |-
+                      namespace of the referenced object. Defaults to the referencing object's
+                      own namespace when omitted. Explicit default (rather than merely
+                      x-kubernetes-list-map-key on status back-ref lists (Decision 5), which
+                      the Kubernetes API server requires to have a default or be required.
+                    type: string
+                required:
+                - name
+                type: object
+              routing:
+                description: routing selects how this app is exposed in the Portal.
+                properties:
+                  pathPrefix:
+                    description: |-
+                      pathPrefix is the path this app is mounted under, e.g. "/grafana/".
+                      Only supported routing kind for now. Requires a leading and trailing
+                      slash, and at least one path segment (no root-only apps, see
+                      docs/ARCHITECTURE.md non-goals). Must not start with "/_panoptikum/",
+                      reserved for the portal-server's own routes (login, OIDC callback,
+                      health check) - keep this literal in sync with
+                      internal/oidcauth.ReservedPrefix, the canonical Go-side source.
+                    pattern: ^/.+/$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: pathPrefix must not start with the reserved /_panoptikum/
+                        prefix
+                      rule: '!self.startsWith(''/_panoptikum/'')'
+                required:
+                - pathPrefix
+                type: object
+              sortOrder:
+                description: sortOrder controls this app's position in the Portal's
+                  nav (ascending).
+                format: int32
+                type: integer
+            required:
+            - appAuthenticationRef
+            - backend
+            - portalRef
+            - routing
+            type: object
+          status:
+            description: status defines the observed state of AppRegistration
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the current state of the AppRegistration
+                  resource: ResolvedRefs (portalRef/appAuthenticationRef/backend all
+                  found) and Accepted (bound into the Portal's routing table; False
+                  with reason NamespaceNotAllowed if this namespace doesn't match the
+                  Portal's allowedAppNamespaces, see docs/ARCHITECTURE.md Decision 8).
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+{{- end }}
