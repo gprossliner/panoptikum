@@ -87,12 +87,22 @@ release:
   header: |
     Image: `ghcr.io/gprossliner/panoptikum:{{ .Tag }}` (linux/amd64, linux/arm64)
 
-    Signed keylessly with [cosign](https://github.com/sigstore/cosign) and includes an SBOM attestation. Verify with:
+    Helm chart: `oci://ghcr.io/gprossliner/charts/panoptikum` version `{{ .Version }}`
+
+    ```sh
+    helm install panoptikum oci://ghcr.io/gprossliner/charts/panoptikum --version {{ .Version }}
+    ```
+
+    Both are signed keylessly with [cosign](https://github.com/sigstore/cosign); the image also includes an SBOM attestation. Verify with:
 
     ```sh
     cosign verify ghcr.io/gprossliner/panoptikum:{{ .Tag }} \
       --certificate-identity-regexp '^https://github\.com/gprossliner/panoptikum/' \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+    cosign verify ghcr.io/gprossliner/charts/panoptikum:{{ .Version }} \
+      --certificate-identity-regexp '^https://github\.com/gprossliner/panoptikum/' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
     ```
   extra_files:
-    - glob: dist/install.yaml
+    - glob: release-assets/install.yaml

@@ -88,16 +88,23 @@ jobs:
 
       # `make build-installer` runs `kustomize edit set image`, which
       # edits the tracked config/manager/kustomization.yaml in place -
-      # restore it so GoReleaser's git-dirty check doesn't fail. The
-      # actual output (dist/install.yaml) is gitignored and untouched.
+      # restore it so GoReleaser's git-dirty check doesn't fail. Also
+      # copy the output out of dist/ - GoReleaser refuses to run unless
+      # dist/ is empty or --clean is passed, and --clean wipes dist/
+      # (deleting install.yaml) before the release step uploads it.
       - name: Render install manifest
         run: |
           make build-installer IMG=${{ env.IMAGE }}:${{ github.ref_name }}
           git checkout -- config/manager/kustomization.yaml
+          mkdir -p release-assets
+          cp dist/install.yaml release-assets/install.yaml
 
       # Builds operator/server natively per-arch (no QEMU), then builds,
       # pushes, and signs the multi-arch image via the dockers_v2/
-      # docker_signs pipes in .goreleaser.yaml.
+      # docker_signs pipes in .goreleaser.yaml. --clean is required:
+      # GoReleaser refuses to run if dist/ (populated just above) isn't
+      # empty, and this also wipes dist/ - which is why install.yaml was
+      # copied to release-assets/ instead.
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
