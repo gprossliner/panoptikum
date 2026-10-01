@@ -54,11 +54,9 @@ spec:
               value: "true"
             - name: GF_AUTH_DISABLE_LOGIN_FORM
               value: "true"
-            # Grafana's default X-Frame-Options: deny would block the
-            # portal shell's iframe embedding (sample-app's nginx sets no
-            # such header, so this wasn't needed there).
-            - name: GF_SECURITY_ALLOW_EMBEDDING
-              value: "true"
+            # No GF_SECURITY_ALLOW_EMBEDDING needed: the portal's reverse
+            # proxy rewrites Grafana's default X-Frame-Options: deny to
+            # SAMEORIGIN automatically (see internal/appproxy/appproxy.go).
 ---
 apiVersion: v1
 kind: Service

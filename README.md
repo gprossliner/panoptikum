@@ -190,8 +190,8 @@ ingress:
     header_name: X-Web-User
     header_property: username
     auto_sign_up: true
-  security:
-    allow_embedding: true   # otherwise X-Frame-Options: deny blocks the portal's <iframe>
+  # no security.allow_embedding needed - the portal rewrites Grafana's
+  # default X-Frame-Options: deny to SAMEORIGIN automatically
 ```
 
 Matching `AppAuthentication`:

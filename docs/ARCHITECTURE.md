@@ -985,6 +985,14 @@ rather than letting VS Code auto-assign on next rebuild).
   (see "Reverse proxy") — so there's no header-spoofing trust boundary to
   reason about even if the portal's `Service` were ever reachable other
   than through the cluster's Ingress.
+- The reverse proxy rewrites a backend's own `X-Frame-Options`/CSP
+  `frame-ancestors` to `SAMEORIGIN`/`'self'` (only if the backend already
+  sent one) so the portal shell can `<iframe>`-embed it without opening it
+  up to framing by any arbitrary site. This relies on today's path-prefix
+  routing keeping every app under the portal's own origin; it would need
+  to become an explicit host allow-list instead if host-based routing for
+  root apps is ever introduced (a bigger change requiring its own DNS/
+  ingress/cert-manager design, not planned currently).
 - Cross-namespace references (Decision 2) mean a namespace can currently
   attach an `AppRegistration` to any `Portal` it can name unless restricted
   via `Portal.spec.allowedAppNamespaces` (Decision 8) — wide open by default,
