@@ -6,7 +6,10 @@ name: Verify
 # separate cache-warming job needed.
 on:
   push:
+    branches:
+      - main
   pull_request:
+  workflow_dispatch:
 
 permissions: {}
 
