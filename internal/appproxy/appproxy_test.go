@@ -243,3 +243,87 @@ func TestWebSocketPassthrough(t *testing.T) {
 		t.Errorf("echoed = %q, want %q", echoed, "hello")
 	}
 }
+
+// TestModifyResponseRewritesXFrameOptions confirms a backend's own
+// clickjacking protection (e.g. Grafana's default "X-Frame-Options: deny")
+// is rewritten rather than passed through unmodified, which would
+// otherwise block the portal shell's <iframe> embedding (see issue #1).
+func TestModifyResponseRewritesXFrameOptions(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Frame-Options", "deny")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	handler, err := New(portalconfig.AppConfig{PathPrefix: grafanaPrefix, BackendURL: backend.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, grafanaPrefix, nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("X-Frame-Options"); got != "SAMEORIGIN" {
+		t.Errorf("X-Frame-Options = %q, want %q", got, "SAMEORIGIN")
+	}
+}
+
+// TestModifyResponseRewritesFrameAncestors confirms a backend's CSP
+// frame-ancestors directive is narrowed to 'self' rather than left as
+// whatever the backend sent (e.g. 'none', which would equally block
+// embedding) - other directives in the same header must survive
+// untouched.
+func TestModifyResponseRewritesFrameAncestors(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; script-src 'self'")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	handler, err := New(portalconfig.AppConfig{PathPrefix: grafanaPrefix, BackendURL: backend.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, grafanaPrefix, nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	got := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(got, "frame-ancestors 'self'") {
+		t.Errorf("Content-Security-Policy = %q, want it to contain %q", got, "frame-ancestors 'self'")
+	}
+	if strings.Contains(got, "'none'") {
+		t.Errorf("Content-Security-Policy = %q, still contains the backend's original 'none'", got)
+	}
+	if !strings.Contains(got, "default-src 'self'") || !strings.Contains(got, "script-src 'self'") {
+		t.Errorf("Content-Security-Policy = %q, other directives must survive untouched", got)
+	}
+}
+
+// TestModifyResponseLeavesUnrelatedHeadersAlone confirms a backend with no
+// framing headers at all (the common case) isn't touched - nothing to
+// rewrite, and no new restrictive header should be invented.
+func TestModifyResponseLeavesUnrelatedHeadersAlone(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	handler, err := New(portalconfig.AppConfig{PathPrefix: grafanaPrefix, BackendURL: backend.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, grafanaPrefix, nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("X-Frame-Options"); got != "" {
+		t.Errorf("X-Frame-Options = %q, want unset", got)
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); got != "" {
+		t.Errorf("Content-Security-Policy = %q, want unset", got)
+	}
+}
