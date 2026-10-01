@@ -32,8 +32,17 @@ spec:
             - name: http
               containerPort: 3000
           env:
+            # root_url is a literal external URL, not %(protocol)s/
+            # %(domain)s placeholders: those reflect Grafana's own
+            # listener config (server.protocol), and setting that to
+            # https would make Grafana expect its own TLS cert/key, which
+            # we don't have - TLS terminates at the Ingress, Grafana
+            # itself only ever speaks plain HTTP. A literal https root_url
+            # also fixes Grafana Live's websocket handshake, which
+            # otherwise rejects the browser's Origin header with a 403
+            # (derived appUrl wouldn't match).
             - name: GF_SERVER_ROOT_URL
-              value: "%(protocol)s://%(domain)s/grafana/"
+              value: https://portal.127.0.0.1.nip.io/grafana/
             - name: GF_SERVER_SERVE_FROM_SUB_PATH
               value: "true"
             # Trusts the X-Forwarded-User header injected by
