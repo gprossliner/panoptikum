@@ -247,6 +247,41 @@ Same story as Prometheus: no `Ingress` to disable by default, and no
 built-in login to delegate to a trusted header - panoptikum's OIDC gate
 is the only access control.
 
+## Security
+
+- **Signed images and chart**: both the container image and the Helm
+  chart are published as signed OCI artifacts ([cosign](https://github.com/sigstore/cosign)
+  keyless/OIDC-based - no key material to manage or leak). See
+  [Getting Started](#getting-started) for the `cosign verify` commands.
+- **Minimal runtime image**: both binaries ship on
+  `gcr.io/distroless/static:nonroot` - no shell, no package manager, a
+  non-root user by default.
+- **Hardened pod/container security**: both the operator and the
+  generated portal-server run with `runAsNonRoot`,
+  `allowPrivilegeEscalation: false`, all Linux capabilities dropped,
+  `seccompProfile: RuntimeDefault`, and a read-only root filesystem.
+- **Verified `restricted` Pod Security Standard compliance** - not just
+  inspected by reading YAML: both the operator's namespace and
+  `test/smoke-test`'s demo namespace carry
+  `pod-security.kubernetes.io/enforce: restricted` labels and are
+  confirmed to admit panoptikum's own pods with zero violations
+  (`kubectl label --dry-run=server` against a real cluster). The Helm
+  chart has no `Namespace` template of its own, so it never silently
+  relabels an existing namespace you point it at - label your own
+  namespace the same way if you want this enforced for your install too.
+- **The portal-server never talks to the Kubernetes API**
+  (`AutomountServiceAccountToken: false`) - only the operator itself
+  needs cluster API access.
+- **No session state handled in plaintext**: session and OIDC-handshake
+  state travels only as AES-256-GCM encrypted/signed cookies (see
+  [OIDC Configuration](#oidc-configuration)), using a key you provide
+  (`cookieSecretRef`), never generated or stored server-side.
+- **RBAC aggregation, not broad default access**: the convenience
+  per-CRD admin/editor/viewer `ClusterRole`s (opt-in,
+  `rbac.helpers.enabled` in the chart) aggregate into Kubernetes' own
+  `admin`/`edit`/`view` roles rather than requiring separate
+  `RoleBinding`s - see the [chart README](charts/chart/README.md#rbac-aggregation).
+
 ## Custom Resources
 
 | Kind                 | Scope     | Purpose                                                                 |
