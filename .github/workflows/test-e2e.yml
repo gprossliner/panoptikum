@@ -1,8 +1,12 @@
 name: E2E Tests
 
+# Manual-only (not on every push/PR): starts a real kind cluster and
+# builds the full operator/server image, much slower than lint/test (see
+# docs/ARCHITECTURE.md / repo history for baseline timings). Run from the
+# Actions tab, or `gh workflow run test-e2e.yml`, when you specifically
+# want to validate the envtest-adjacent e2e suite (test/e2e/).
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 permissions: {}
 
@@ -14,12 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
