@@ -23,10 +23,12 @@ limitations under the License.
 // The bare-prefix -> trailing-slash redirect ("/grafana" -> "/grafana/")
 // is deliberately NOT implemented here: net/http.ServeMux already performs
 // this redirect for any subtree pattern (one ending in "/", which every
-// AppRegistration.spec.routing.pathPrefix is validated to be), and it does
-// so with a path-only relative Location header - the browser keeps
-// whatever scheme/host it already used to reach us, so there's no need to
-// trust X-Forwarded-Proto/-Host to build an absolute URL.
+// AppRegistration.spec.routing.pathPrefix is normalized to by
+// buildAppConfig in internal/controller/portal_controller.go before
+// reaching here), and it does so with a path-only relative Location
+// header - the browser keeps whatever scheme/host it already used to
+// reach us, so there's no need to trust X-Forwarded-Proto/-Host to build
+// an absolute URL.
 package appproxy
 
 import (

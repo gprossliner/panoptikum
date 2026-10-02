@@ -55,15 +55,11 @@ type AppRegistrationBackend struct {
 // routing) can be added as a pure addition (see docs/ARCHITECTURE.md
 // Decision 1).
 type AppRegistrationRouting struct {
-	// pathPrefix is the path this app is mounted under, e.g. "/grafana/".
-	// Only supported routing kind for now. Requires a leading and trailing
-	// slash, and at least one path segment (no root-only apps, see
-	// docs/ARCHITECTURE.md non-goals). Must not start with "/_panoptikum/",
-	// reserved for the portal-server's own routes (login, OIDC callback,
-	// health check) - keep this literal in sync with
-	// internal/oidcauth.ReservedPrefix, the canonical Go-side source.
+	// pathPrefix is the path this app is mounted under, e.g. "/grafana/" or
+	// "/grafana" (trailing slash optional). Must not start with the
+	// reserved "/_panoptikum/" prefix.
 	// +required
-	// +kubebuilder:validation:Pattern=`^/.+/$`
+	// +kubebuilder:validation:Pattern=`^/[^/].*$`
 	// +kubebuilder:validation:XValidation:rule="!self.startsWith('/_panoptikum/')",message="pathPrefix must not start with the reserved /_panoptikum/ prefix"
 	PathPrefix string `json:"pathPrefix"`
 }

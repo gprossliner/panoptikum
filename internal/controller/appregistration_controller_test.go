@@ -182,4 +182,35 @@ var _ = Describe("AppRegistration Controller", func() {
 		}
 		Expect(k8sClient.Create(ctx, appReg)).NotTo(Succeed())
 	})
+
+	It("accepts a pathPrefix without a trailing slash (issue #12)", func() {
+		appReg := &panoptikumv1alpha1.AppRegistration{
+			ObjectMeta: metav1.ObjectMeta{Name: "ar-no-trailing-slash", Namespace: namespace},
+			Spec: panoptikumv1alpha1.AppRegistrationSpec{
+				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-portal-6"},
+				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-appauth-6"},
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "/health"},
+				Backend: panoptikumv1alpha1.AppRegistrationBackend{
+					Service: panoptikumv1alpha1.ServiceBackend{Name: "ar-service-6", Port: 80},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, appReg)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, appReg)).To(Succeed()) })
+	})
+
+	It("rejects a pathPrefix without a leading slash", func() {
+		appReg := &panoptikumv1alpha1.AppRegistration{
+			ObjectMeta: metav1.ObjectMeta{Name: "ar-no-leading-slash", Namespace: namespace},
+			Spec: panoptikumv1alpha1.AppRegistrationSpec{
+				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-portal-7"},
+				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-appauth-7"},
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "health"},
+				Backend: panoptikumv1alpha1.AppRegistrationBackend{
+					Service: panoptikumv1alpha1.ServiceBackend{Name: "ar-service-7", Port: 80},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, appReg)).NotTo(Succeed())
+	})
 })
