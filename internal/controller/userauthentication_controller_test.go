@@ -95,11 +95,14 @@ var _ = Describe("UserAuthentication Controller", func() {
 						Namespace: resourceNamespace,
 					},
 					Spec: panoptikumv1alpha1.UserAuthenticationSpec{
-						IssuerURL: "https://keycloak.example.com/realms/example",
-						ClientID:  "management-portal",
-						ClientSecretRef: corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
-							Key:                  clientSecretKey,
+						Type: panoptikumv1alpha1.UserAuthenticationTypeOIDC,
+						OIDC: &panoptikumv1alpha1.OIDCConfig{
+							IssuerURL: "https://keycloak.example.com/realms/example",
+							ClientID:  "management-portal",
+							ClientSecretRef: corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
+								Key:                  clientSecretKey,
+							},
 						},
 						CookieSecretRef: corev1.SecretKeySelector{
 							LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
@@ -148,7 +151,7 @@ var _ = Describe("UserAuthentication Controller", func() {
 		It("should set Ready=False with reason SecretKeyNotFound when a referenced key is missing", func() {
 			var toUpdate panoptikumv1alpha1.UserAuthentication
 			Expect(k8sClient.Get(ctx, typeNamespacedName, &toUpdate)).To(Succeed())
-			toUpdate.Spec.ClientSecretRef.Key = "does-not-exist"
+			toUpdate.Spec.OIDC.ClientSecretRef.Key = "does-not-exist"
 			Expect(k8sClient.Update(ctx, &toUpdate)).To(Succeed())
 
 			controllerReconciler := &UserAuthenticationReconciler{
@@ -168,6 +171,29 @@ var _ = Describe("UserAuthentication Controller", func() {
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(cond.Reason).To(Equal("SecretKeyNotFound"))
+		})
+	})
+
+	Context("When validating the spec", func() {
+		const resourceNamespace = "default"
+
+		ctx := context.Background()
+
+		It("should reject an OIDC type with no oidc config (issue #14)", func() {
+			resource := &panoptikumv1alpha1.UserAuthentication{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "missing-oidc-config",
+					Namespace: resourceNamespace,
+				},
+				Spec: panoptikumv1alpha1.UserAuthenticationSpec{
+					Type: panoptikumv1alpha1.UserAuthenticationTypeOIDC,
+					CookieSecretRef: corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "some-secret"},
+						Key:                  cookieSecretKey,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).NotTo(Succeed())
 		})
 	})
 })

@@ -226,7 +226,7 @@ func appRegistrationRefs(bound []panoptikumv1alpha1.AppRegistration) []panoptiku
 func (r *PortalReconciler) buildConfig(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal, userAuth *panoptikumv1alpha1.UserAuthentication, bound []panoptikumv1alpha1.AppRegistration) (portalconfig.Config, bool) {
 	log := logf.FromContext(ctx)
 
-	clientSecret, ok := r.getSecretValue(ctx, userAuth.Namespace, userAuth.Spec.ClientSecretRef)
+	clientSecret, ok := r.getSecretValue(ctx, userAuth.Namespace, userAuth.Spec.OIDC.ClientSecretRef)
 	if !ok {
 		return portalconfig.Config{}, false
 	}
@@ -241,12 +241,12 @@ func (r *PortalReconciler) buildConfig(ctx xhdl.Context, portal *panoptikumv1alp
 			DisplayName: portal.Spec.DisplayName,
 		},
 		UserAuthentication: portalconfig.UserAuthenticationConfig{
-			IssuerURL:            userAuth.Spec.IssuerURL,
-			ClientID:             userAuth.Spec.ClientID,
+			IssuerURL:            userAuth.Spec.OIDC.IssuerURL,
+			ClientID:             userAuth.Spec.OIDC.ClientID,
 			ClientSecret:         clientSecret,
 			CookieSecret:         cookieSecret,
-			Scopes:               userAuth.Spec.Scopes,
-			AllowUnverifiedEmail: userAuth.Spec.AllowUnverifiedEmail,
+			Scopes:               userAuth.Spec.OIDC.Scopes,
+			AllowUnverifiedEmail: userAuth.Spec.OIDC.AllowUnverifiedEmail,
 		},
 	}
 

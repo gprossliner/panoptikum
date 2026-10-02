@@ -85,11 +85,14 @@ var _ = Describe("Portal Controller", func() {
 		userAuth := &panoptikumv1alpha1.UserAuthentication{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: panoptikumv1alpha1.UserAuthenticationSpec{
-				IssuerURL: "https://issuer.example.com",
-				ClientID:  "test-client",
-				ClientSecretRef: corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
-					Key:                  clientSecretKey,
+				Type: panoptikumv1alpha1.UserAuthenticationTypeOIDC,
+				OIDC: &panoptikumv1alpha1.OIDCConfig{
+					IssuerURL: "https://issuer.example.com",
+					ClientID:  "test-client",
+					ClientSecretRef: corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},
+						Key:                  clientSecretKey,
+					},
 				},
 				CookieSecretRef: corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name},

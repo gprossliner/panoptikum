@@ -77,7 +77,6 @@ type UserAuthenticationSpec struct {
 	OIDC *OIDCConfig `json:"oidc,omitempty"`
 }
 
-
 // UserAuthenticationStatus defines the observed state of UserAuthentication.
 type UserAuthenticationStatus struct {
 	// conditions represent the current state of the UserAuthentication resource.
