@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/gprossliner/xhdl"
 	appsv1 "k8s.io/api/apps/v1"
@@ -296,11 +297,22 @@ func buildAppConfig(ctx xhdl.Context, cl client.Client, ar panoptikumv1alpha1.Ap
 
 	return portalconfig.AppConfig{
 		DisplayName:   ar.Spec.DisplayName,
-		PathPrefix:    ar.Spec.Routing.PathPrefix,
+		PathPrefix:    normalizePathPrefix(ar.Spec.Routing.PathPrefix),
 		SortOrder:     ar.Spec.SortOrder,
 		BackendURL:    backendURL,
 		Authorization: authorization,
 	}, true
+}
+
+// normalizePathPrefix adds back the trailing slash AppRegistrationRouting.PathPrefix
+// allows omitting (see its doc comment) - every downstream consumer (the
+// ServeMux subtree mount in cmd/server/main.go, appproxy's bare-prefix
+// redirect) relies on it always ending in "/".
+func normalizePathPrefix(pathPrefix string) string {
+	if !strings.HasSuffix(pathPrefix, "/") {
+		return pathPrefix + "/"
+	}
+	return pathPrefix
 }
 
 // getSecretValue returns the value of sel.Key in the Secret sel.Name,

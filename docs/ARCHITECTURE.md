@@ -668,9 +668,11 @@ Requirements confirmed against the predecessor Terraform module's
   touching `r.URL.Path` before proxying.
 - **Bare-prefix redirect**: a request for `/grafana` (no trailing slash)
   must `307` to `/grafana/`. Implemented with zero custom code: every
-  `pathPrefix` is validated to end in `/`, so mounting each app's handler
-  on it in a plain `net/http.ServeMux` makes `/grafana` a subtree root —
-  `ServeMux` itself redirects bare subtree-root requests to the
+  `pathPrefix` is normalized to end in `/` (a trailing slash is optional in
+  the CR itself — see issue #12 — but added back by `buildAppConfig` in
+  `internal/controller/portal_controller.go`), so mounting each app's
+  handler on it in a plain `net/http.ServeMux` makes `/grafana` a subtree
+  root — `ServeMux` itself redirects bare subtree-root requests to the
   trailing-slash form, and does so with a **path-only relative**
   `Location` header (no scheme/host). The browser resolves it against
   whatever scheme/host it already used to reach us, so — unlike the

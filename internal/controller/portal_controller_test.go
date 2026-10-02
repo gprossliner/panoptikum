@@ -245,6 +245,46 @@ var _ = Describe("Portal Controller", func() {
 		Expect(secret.Annotations).To(HaveKey("panoptikum.dev/config-hash"))
 	})
 
+	It("normalizes a pathPrefix without a trailing slash (issue #12)", func() {
+		createUserAuthentication("p-userauth-5b")
+		createPortal("p-5b", "p-userauth-5b")
+		createAppAuthentication("p-5b-appauth")
+
+		appReg := &panoptikumv1alpha1.AppRegistration{
+			ObjectMeta: metav1.ObjectMeta{Name: "p-5b-app", Namespace: namespace},
+			Spec: panoptikumv1alpha1.AppRegistrationSpec{
+				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: "p-5b"},
+				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "p-5b-appauth"},
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "/grafana"},
+				Backend: panoptikumv1alpha1.AppRegistrationBackend{
+					Service: panoptikumv1alpha1.ServiceBackend{Name: "grafana", Port: 80},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, appReg)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, appReg)).To(Succeed()) })
+
+		apimeta.SetStatusCondition(&appReg.Status.Conditions, metav1.Condition{
+			Type:    panoptikumv1alpha1.ConditionTypeAccepted,
+			Status:  metav1.ConditionTrue,
+			Reason:  testConditionReason,
+			Message: testConditionReason,
+		})
+		Expect(k8sClient.Status().Update(ctx, appReg)).To(Succeed())
+
+		reconcilePortal("p-5b")
+
+		var secret corev1.Secret
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "p-5b-config", Namespace: namespace}, &secret)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, &secret)).To(Succeed()) })
+
+		var cfg portalconfig.Config
+		Expect(json.Unmarshal(secret.Data["config.json"], &cfg)).To(Succeed())
+
+		Expect(cfg.Apps).To(HaveLen(1))
+		Expect(cfg.Apps[0].PathPrefix).To(Equal("/grafana/"))
+	})
+
 	It("creates the portal-server Deployment and Service once the image is known", func() {
 		const portalName = "p-6"
 		createUserAuthentication("p-userauth-6")
