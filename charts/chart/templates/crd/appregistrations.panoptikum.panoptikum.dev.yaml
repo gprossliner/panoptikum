@@ -111,6 +111,35 @@ spec:
                 required:
                 - name
                 type: object
+              routes:
+                description: |-
+                  routes overrides the default Authenticated access requirement for
+                  matching sub-paths (e.g. an app's own public/anonymous routes).
+                  Evaluated in order; the first match wins. No match (or an empty/unset
+                  list) means Authenticated.
+                items:
+                  description: |-
+                    AppRegistrationRoute matches a sub-path within an app to an access
+                    requirement, overriding the default of requiring a logged-in user.
+                  properties:
+                    access:
+                      description: access is applied when match matches.
+                      enum:
+                      - Authenticated
+                      - Anonymous
+                      type: string
+                    match:
+                      description: |-
+                        match is a regular expression evaluated against the request path
+                        with this AppRegistration's routing.pathPrefix stripped (e.g.
+                        "^/public-dashboards/" matches "/grafana/public-dashboards/..." when
+                        pathPrefix is "/grafana/").
+                      type: string
+                  required:
+                  - access
+                  - match
+                  type: object
+                type: array
               routing:
                 description: routing selects how this app is exposed in the Portal.
                 properties:

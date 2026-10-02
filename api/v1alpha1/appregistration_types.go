@@ -64,6 +64,40 @@ type AppRegistrationRouting struct {
 	PathPrefix string `json:"pathPrefix"`
 }
 
+// AppRegistrationRouteAccess selects whether a matched route requires a
+// logged-in user.
+// +kubebuilder:validation:Enum=Authenticated;Anonymous
+type AppRegistrationRouteAccess string
+
+const (
+	// AppRegistrationRouteAccessAuthenticated requires a valid session,
+	// redirecting to login otherwise. Default when routes doesn't match or
+	// is unset.
+	AppRegistrationRouteAccessAuthenticated AppRegistrationRouteAccess = "Authenticated"
+
+	// AppRegistrationRouteAccessAnonymous allows the request through
+	// without a session. No trusted header is injected (there's no
+	// logged-in user to vouch for), even if the app's AppAuthentication
+	// configures one - everything else (no path rewriting, WebSocket
+	// passthrough, framing-header rewriting) still applies as normal.
+	AppRegistrationRouteAccessAnonymous AppRegistrationRouteAccess = "Anonymous"
+)
+
+// AppRegistrationRoute matches a sub-path within an app to an access
+// requirement, overriding the default of requiring a logged-in user.
+type AppRegistrationRoute struct {
+	// match is a regular expression evaluated against the request path
+	// with this AppRegistration's routing.pathPrefix stripped (e.g.
+	// "^/public-dashboards/" matches "/grafana/public-dashboards/..." when
+	// pathPrefix is "/grafana/").
+	// +required
+	Match string `json:"match"`
+
+	// access is applied when match matches.
+	// +required
+	Access AppRegistrationRouteAccess `json:"access"`
+}
+
 // AppRegistrationSpec defines the desired state of AppRegistration
 type AppRegistrationSpec struct {
 	// portalRef references the Portal this app is registered with.
@@ -82,6 +116,13 @@ type AppRegistrationSpec struct {
 	// routing selects how this app is exposed in the Portal.
 	// +required
 	Routing AppRegistrationRouting `json:"routing"`
+
+	// routes overrides the default Authenticated access requirement for
+	// matching sub-paths (e.g. an app's own public/anonymous routes).
+	// Evaluated in order; the first match wins. No match (or an empty/unset
+	// list) means Authenticated.
+	// +optional
+	Routes []AppRegistrationRoute `json:"routes,omitempty"`
 
 	// sortOrder controls this app's position in the Portal's nav (ascending).
 	// +optional
