@@ -68,7 +68,7 @@ func TestServeHTTPRendersUserAppsAndCustomization(t *testing.T) {
 		`href="#/headlamp" data-app="headlamp">headlamp</a>`,
 		`"grafana":{"base":"/grafana/"}`,
 		`"headlamp":{"base":"/headlamp/"}`,
-		"Built with panoptikum",
+		"Portal build with panoptikum",
 		`href="https://github.com/gprossliner/panoptikum"`,
 	} {
 		if !strings.Contains(body, want) {
