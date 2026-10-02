@@ -40,44 +40,12 @@ spec:
           spec:
             description: spec defines the desired state of UserAuthentication
             properties:
-              allowUnverifiedEmail:
-                description: |-
-                  allowUnverifiedEmail allows login for users whose email claim is not
-                  marked verified by the issuer.
-                type: boolean
-              clientID:
-                description: clientID is the OAuth2/OIDC client ID registered with
-                  the issuer.
-                type: string
-              clientSecretRef:
-                description: clientSecretRef references the Secret key holding the
-                  OAuth2/OIDC client secret.
-                properties:
-                  key:
-                    description: The key of the secret to select from.  Must be a
-                      valid secret key.
-                    type: string
-                  name:
-                    default: ""
-                    description: |-
-                      Name of the referent.
-                      This field is effectively required, but due to backwards compatibility is
-                      allowed to be empty. Instances of this type with an empty value here are
-                      almost certainly wrong.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                    type: string
-                  optional:
-                    description: Specify whether the Secret or its key must be defined
-                    type: boolean
-                required:
-                - key
-                type: object
-                x-kubernetes-map-type: atomic
               cookieSecretRef:
                 description: |-
                   cookieSecretRef references the Secret key holding the symmetric key used to
                   encrypt and sign session and OIDC handshake cookies, shared by every
-                  portal-server replica (see docs/ARCHITECTURE.md Decision 7).
+                  portal-server replica (see docs/ARCHITECTURE.md Decision 7). Independent
+                  of type - every mechanism issues the same kind of session cookie.
                 properties:
                   key:
                     description: The key of the secret to select from.  Must be a
@@ -99,25 +67,75 @@ spec:
                 - key
                 type: object
                 x-kubernetes-map-type: atomic
-              issuerURL:
-                description: issuerURL is the OIDC issuer URL used to discover endpoints
-                  and validate tokens.
+              oidc:
+                description: oidc configures OIDC-based authentication. Required when
+                  type is OIDC.
+                properties:
+                  allowUnverifiedEmail:
+                    description: |-
+                      allowUnverifiedEmail allows login for users whose email claim is not
+                      marked verified by the issuer.
+                    type: boolean
+                  clientID:
+                    description: clientID is the OAuth2/OIDC client ID registered
+                      with the issuer.
+                    type: string
+                  clientSecretRef:
+                    description: clientSecretRef references the Secret key holding
+                      the OAuth2/OIDC client secret.
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  issuerURL:
+                    description: issuerURL is the OIDC issuer URL used to discover
+                      endpoints and validate tokens.
+                    type: string
+                  scopes:
+                    default:
+                    - openid
+                    - profile
+                    - email
+                    description: scopes are the OIDC scopes requested during authentication.
+                    items:
+                      type: string
+                    type: array
+                required:
+                - clientID
+                - clientSecretRef
+                - issuerURL
+                type: object
+              type:
+                description: type selects which mechanism authenticates users to the
+                  Portal.
+                enum:
+                - OIDC
                 type: string
-              scopes:
-                default:
-                - openid
-                - profile
-                - email
-                description: scopes are the OIDC scopes requested during authentication.
-                items:
-                  type: string
-                type: array
             required:
-            - clientID
-            - clientSecretRef
             - cookieSecretRef
-            - issuerURL
+            - type
             type: object
+            x-kubernetes-validations:
+            - message: oidc is required when type is OIDC
+              rule: self.type != 'OIDC' || has(self.oidc)
           status:
             description: status defines the observed state of UserAuthentication
             properties:

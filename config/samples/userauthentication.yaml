@@ -6,11 +6,13 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: userauthentication-sample
 spec:
-  issuerURL: https://keycloak.example.com/realms/example
-  clientID: management-portal
-  clientSecretRef:
-    name: userauthentication-sample-secret
-    key: client-secret
+  type: OIDC
   cookieSecretRef:
     name: userauthentication-sample-secret
     key: cookie-secret
+  oidc:
+    issuerURL: https://keycloak.example.com/realms/example
+    clientID: management-portal
+    clientSecretRef:
+      name: userauthentication-sample-secret
+      key: client-secret

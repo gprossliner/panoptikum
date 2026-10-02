@@ -130,16 +130,19 @@ The OIDC configuration used to authenticate the human opening the portal.
 
 ```
 spec:
-  issuerURL: string
-  clientID: string
-  clientSecretRef:
-    name: string
-    key: string
+  type: OIDC                         # only variant for now (see issue #9)
   cookieSecretRef:                   # symmetric key, shared by every proxy
     name: string                     # replica, encrypts/signs session +
     key: string                      # handshake-state cookies (see Decision 7)
-  scopes: [string]                   # default: [openid, profile, email]
-  allowUnverifiedEmail: bool
+                                      # - independent of type
+  oidc:
+    issuerURL: string
+    clientID: string
+    clientSecretRef:
+      name: string
+      key: string
+    scopes: [string]                 # default: [openid, profile, email]
+    allowUnverifiedEmail: bool
 status:
   conditions: [{type: Ready, ...}]
   portals:                           # back-refs, bound Portals
@@ -228,7 +231,7 @@ boundary case this is meant to cover.
 
 ### Decision 3: Secrets are pre-provisioned, never inline
 
-`UserAuthentication.spec.clientSecretRef` (and any future secret-bearing
+`UserAuthentication.spec.oidc.clientSecretRef` (and any future secret-bearing
 field) references an existing `Secret` by name/key; no CRD ever carries a
 secret value inline. A Helm chart may optionally bootstrap a "default"
 `Portal` + accompanying `Secret` for first-run convenience — exact semantics

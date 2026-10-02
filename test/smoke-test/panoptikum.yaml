@@ -22,14 +22,16 @@ kind: UserAuthentication
 metadata:
   name: nanoidp
 spec:
-  issuerURL: http://idp.127.0.0.1.nip.io
-  clientID: panoptikum-portal
-  clientSecretRef:
-    name: panoptikum-demo-secrets
-    key: client-secret
+  type: OIDC
   cookieSecretRef:
     name: panoptikum-demo-secrets
     key: cookie-secret
+  oidc:
+    issuerURL: http://idp.127.0.0.1.nip.io
+    clientID: panoptikum-portal
+    clientSecretRef:
+      name: panoptikum-demo-secrets
+      key: client-secret
 ---
 # Vouches for the logged-in user to sample-app via a trusted header - the
 # sample app's nginx.conf (sample-app.yaml) echoes it back as plain text

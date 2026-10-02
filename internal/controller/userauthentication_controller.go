@@ -46,7 +46,7 @@ type UserAuthenticationReconciler struct {
 
 // Field indexer keys, used to find UserAuthentications referencing a given Secret.
 const (
-	clientSecretRefNameIndex = "spec.clientSecretRef.name"
+	clientSecretRefNameIndex = "spec.oidc.clientSecretRef.name"
 	cookieSecretRefNameIndex = "spec.cookieSecretRef.name"
 )
 
@@ -55,7 +55,7 @@ const (
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=userauthentications/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
-// Reconcile resolves UserAuthentication.spec.clientSecretRef/cookieSecretRef
+// Reconcile resolves UserAuthentication.spec.oidc.clientSecretRef/cookieSecretRef
 // and sets the Ready condition accordingly.
 func (r *UserAuthenticationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	err := xhdl.RunContext(ctx, func(xc xhdl.Context) {
@@ -84,7 +84,7 @@ func (r *UserAuthenticationReconciler) reconcile(ctx xhdl.Context, req ctrl.Requ
 		field string
 		sel   corev1.SecretKeySelector
 	}{
-		{"clientSecretRef", userAuth.Spec.ClientSecretRef},
+		{"oidc.clientSecretRef", userAuth.Spec.OIDC.ClientSecretRef},
 		{"cookieSecretRef", userAuth.Spec.CookieSecretRef},
 	} {
 		if reason, message, ok := r.resolveSecretKey(ctx, userAuth.Namespace, ref.field, ref.sel); !ok {
@@ -121,7 +121,7 @@ func (r *UserAuthenticationReconciler) resolveSecretKey(ctx xhdl.Context, namesp
 // SetupWithManager sets up the controller with the Manager.
 func (r *UserAuthenticationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &panoptikumv1alpha1.UserAuthentication{}, clientSecretRefNameIndex, func(obj client.Object) []string {
-		return []string{obj.(*panoptikumv1alpha1.UserAuthentication).Spec.ClientSecretRef.Name}
+		return []string{obj.(*panoptikumv1alpha1.UserAuthentication).Spec.OIDC.ClientSecretRef.Name}
 	}); err != nil {
 		return err
 	}
