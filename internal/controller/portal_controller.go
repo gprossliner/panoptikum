@@ -226,6 +226,13 @@ func appRegistrationRefs(bound []panoptikumv1alpha1.AppRegistration) []panoptiku
 func (r *PortalReconciler) buildConfig(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal, userAuth *panoptikumv1alpha1.UserAuthentication, bound []panoptikumv1alpha1.AppRegistration) (portalconfig.Config, bool) {
 	log := logf.FromContext(ctx)
 
+	if userAuth.Spec.OIDC == nil {
+		// Stale object from before issue #14 (see
+		// UserAuthenticationReconciler.reconcile) - nothing to build yet.
+		log.Info("UserAuthentication has no oidc config", "name", userAuth.Name, "namespace", userAuth.Namespace)
+		return portalconfig.Config{}, false
+	}
+
 	clientSecret, ok := r.getSecretValue(ctx, userAuth.Namespace, userAuth.Spec.OIDC.ClientSecretRef)
 	if !ok {
 		return portalconfig.Config{}, false

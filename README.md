@@ -170,6 +170,13 @@ spec:
     replicas: 3
 ```
 
+The operator and portal-server are also independently resilient to each
+other: the portal-server never talks to the Kubernetes API (Decision 4),
+so if the operator is down or crash-looping, already-running
+portal-server pods keep serving traffic unaffected, using the last
+successfully-written config `Secret` - they just won't pick up any new
+`AppRegistration`/`Portal` changes until the operator recovers.
+
 ## Known Apps
 
 Helm values known to work well behind panoptikum for a few common apps -

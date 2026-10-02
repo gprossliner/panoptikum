@@ -80,18 +80,28 @@ func (r *UserAuthenticationReconciler) reconcile(ctx xhdl.Context, req ctrl.Requ
 		Message:            "clientSecretRef and cookieSecretRef both resolved",
 	}
 
-	for _, ref := range []struct {
-		field string
-		sel   corev1.SecretKeySelector
-	}{
-		{"oidc.clientSecretRef", userAuth.Spec.OIDC.ClientSecretRef},
-		{"cookieSecretRef", userAuth.Spec.CookieSecretRef},
-	} {
-		if reason, message, ok := r.resolveSecretKey(ctx, userAuth.Namespace, ref.field, ref.sel); !ok {
-			ready.Status = metav1.ConditionFalse
-			ready.Reason = reason
-			ready.Message = message
-			break
+	if userAuth.Spec.OIDC == nil {
+		// Only reachable for an object stored under an older schema version
+		// (pre-issue #14) and never rewritten since - CEL validation isn't
+		// retroactive, so an already-stored object can still be missing
+		// oidc even though type is required to be OIDC today.
+		ready.Status = metav1.ConditionFalse
+		ready.Reason = "OIDCConfigMissing"
+		ready.Message = "spec.oidc is unset"
+	} else {
+		for _, ref := range []struct {
+			field string
+			sel   corev1.SecretKeySelector
+		}{
+			{"oidc.clientSecretRef", userAuth.Spec.OIDC.ClientSecretRef},
+			{"cookieSecretRef", userAuth.Spec.CookieSecretRef},
+		} {
+			if reason, message, ok := r.resolveSecretKey(ctx, userAuth.Namespace, ref.field, ref.sel); !ok {
+				ready.Status = metav1.ConditionFalse
+				ready.Reason = reason
+				ready.Message = message
+				break
+			}
 		}
 	}
 
@@ -121,7 +131,13 @@ func (r *UserAuthenticationReconciler) resolveSecretKey(ctx xhdl.Context, namesp
 // SetupWithManager sets up the controller with the Manager.
 func (r *UserAuthenticationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &panoptikumv1alpha1.UserAuthentication{}, clientSecretRefNameIndex, func(obj client.Object) []string {
-		return []string{obj.(*panoptikumv1alpha1.UserAuthentication).Spec.OIDC.ClientSecretRef.Name}
+		ua := obj.(*panoptikumv1alpha1.UserAuthentication)
+		if ua.Spec.OIDC == nil {
+			// Stale object from before issue #14 (see reconcile) - no
+			// clientSecretRef to index yet.
+			return nil
+		}
+		return []string{ua.Spec.OIDC.ClientSecretRef.Name}
 	}); err != nil {
 		return err
 	}
