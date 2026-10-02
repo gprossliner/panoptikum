@@ -22,8 +22,19 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// UserAuthenticationSpec defines the desired state of UserAuthentication
-type UserAuthenticationSpec struct {
+// UserAuthenticationType selects the mechanism used to authenticate users to
+// a Portal. Only one variant exists for now; more can be added later
+// without a new CRD (see issue #9).
+// +kubebuilder:validation:Enum=OIDC
+type UserAuthenticationType string
+
+const (
+	// UserAuthenticationTypeOIDC authenticates users via an OIDC provider.
+	UserAuthenticationTypeOIDC UserAuthenticationType = "OIDC"
+)
+
+// OIDCConfig configures OIDC-based user authentication.
+type OIDCConfig struct {
 	// issuerURL is the OIDC issuer URL used to discover endpoints and validate tokens.
 	// +required
 	IssuerURL string `json:"issuerURL"`
@@ -36,12 +47,6 @@ type UserAuthenticationSpec struct {
 	// +required
 	ClientSecretRef corev1.SecretKeySelector `json:"clientSecretRef"`
 
-	// cookieSecretRef references the Secret key holding the symmetric key used to
-	// encrypt and sign session and OIDC handshake cookies, shared by every
-	// portal-server replica (see docs/ARCHITECTURE.md Decision 7).
-	// +required
-	CookieSecretRef corev1.SecretKeySelector `json:"cookieSecretRef"`
-
 	// scopes are the OIDC scopes requested during authentication.
 	// +optional
 	// +kubebuilder:default={openid,profile,email}
@@ -52,6 +57,26 @@ type UserAuthenticationSpec struct {
 	// +optional
 	AllowUnverifiedEmail bool `json:"allowUnverifiedEmail,omitempty"`
 }
+
+// UserAuthenticationSpec defines the desired state of UserAuthentication
+// +kubebuilder:validation:XValidation:rule="self.type != 'OIDC' || has(self.oidc)",message="oidc is required when type is OIDC"
+type UserAuthenticationSpec struct {
+	// type selects which mechanism authenticates users to the Portal.
+	// +required
+	Type UserAuthenticationType `json:"type"`
+
+	// cookieSecretRef references the Secret key holding the symmetric key used to
+	// encrypt and sign session and OIDC handshake cookies, shared by every
+	// portal-server replica (see docs/ARCHITECTURE.md Decision 7). Independent
+	// of type - every mechanism issues the same kind of session cookie.
+	// +required
+	CookieSecretRef corev1.SecretKeySelector `json:"cookieSecretRef"`
+
+	// oidc configures OIDC-based authentication. Required when type is OIDC.
+	// +optional
+	OIDC *OIDCConfig `json:"oidc,omitempty"`
+}
+
 
 // UserAuthenticationStatus defines the observed state of UserAuthentication.
 type UserAuthenticationStatus struct {
