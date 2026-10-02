@@ -214,7 +214,7 @@ var _ = Describe("AppRegistration Controller", func() {
 		Expect(k8sClient.Create(ctx, appReg)).NotTo(Succeed())
 	})
 
-	It("sets Accepted=Unknown when a routes[].match regex fails to compile (issue #11)", func() {
+	It("sets Accepted=Unknown when an accessRules[].matchRoute regex fails to compile (issue #11)", func() {
 		createPortal("ar-portal-8", ".+")
 		createAppAuthentication("ar-appauth-8")
 		createService("ar-service-8")
@@ -225,8 +225,8 @@ var _ = Describe("AppRegistration Controller", func() {
 				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-portal-8"},
 				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-appauth-8"},
 				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "/app/"},
-				Routes: []panoptikumv1alpha1.AppRegistrationRoute{
-					{Match: "(", Access: panoptikumv1alpha1.AppRegistrationRouteAccessAnonymous},
+				AccessRules: []panoptikumv1alpha1.AppRegistrationAccessRule{
+					{MatchRoute: "(", Access: panoptikumv1alpha1.AppRegistrationAccessRuleAccessAnonymous},
 				},
 				Backend: panoptikumv1alpha1.AppRegistrationBackend{
 					Service: panoptikumv1alpha1.ServiceBackend{Name: "ar-service-8", Port: 80},

@@ -84,9 +84,9 @@ type AppConfig struct {
 	PathPrefix  string `json:"pathPrefix"`
 	SortOrder   int32  `json:"sortOrder,omitempty"`
 
-	// Routes overrides the default Authenticated access requirement for
-	// matching sub-paths (see RouteConfig).
-	Routes []RouteConfig `json:"routes,omitempty"`
+	// AccessRules overrides the default Authenticated access requirement
+	// for matching sub-paths (see AccessRuleConfig).
+	AccessRules []AccessRuleConfig `json:"accessRules,omitempty"`
 
 	// BackendURL is the fully resolved backend address (e.g.
 	// "http://grafana.management-portal.svc.cluster.local:80"), computed
@@ -99,28 +99,29 @@ type AppConfig struct {
 	Authorization AppAuthorization `json:"authorization"`
 }
 
-// RouteAccess mirrors AppRegistrationRouteAccess (see
+// AccessRuleAccess mirrors AppRegistrationAccessRuleAccess (see
 // docs/ARCHITECTURE.md "AppRegistration") but is kept as its own type here,
 // free of the CRD API's dependencies (Decision 4).
-type RouteAccess string
+type AccessRuleAccess string
 
 const (
-	// RouteAccessAuthenticated requires a valid session, redirecting to
-	// login otherwise. Default when no route matches or Routes is empty.
-	RouteAccessAuthenticated RouteAccess = "Authenticated"
+	// AccessRuleAccessAuthenticated requires a valid session, redirecting
+	// to login otherwise. Default when no rule matches or AccessRules is
+	// empty.
+	AccessRuleAccessAuthenticated AccessRuleAccess = "Authenticated"
 
-	// RouteAccessAnonymous allows the request through without a session -
-	// no trusted header is injected either, since there's no logged-in
-	// user to vouch for.
-	RouteAccessAnonymous RouteAccess = "Anonymous"
+	// AccessRuleAccessAnonymous allows the request through without a
+	// session - no trusted header is injected either, since there's no
+	// logged-in user to vouch for.
+	AccessRuleAccessAnonymous AccessRuleAccess = "Anonymous"
 )
 
-// RouteConfig mirrors one AppRegistration.spec.routes[] entry. Match is
-// already known to compile - validated at reconcile time (see
-// docs/ARCHITECTURE.md "Reconciliation design"), not here.
-type RouteConfig struct {
-	Match  string      `json:"match"`
-	Access RouteAccess `json:"access"`
+// AccessRuleConfig mirrors one AppRegistration.spec.accessRules[] entry.
+// MatchRoute is already known to compile - validated at reconcile time
+// (see docs/ARCHITECTURE.md "Reconciliation design"), not here.
+type AccessRuleConfig struct {
+	MatchRoute string           `json:"matchRoute"`
+	Access     AccessRuleAccess `json:"access"`
 }
 
 // AppAuthorizationType selects the mechanism used to vouch for the

@@ -393,16 +393,16 @@ spec:
   displayName: Grafana
   routing:
     pathPrefix: /grafana/
-  routes:
+  accessRules:
     # Optional: opt specific sub-paths out of the login gate (default is
     # "everything requires login"). Example below allows Grafana's
     # Snapshot feature (Dashboard > Share > Snapshot), which Grafana
     # itself documents as viewable without authentication.
-    - match: ^/public/
+    - matchRoute: ^/public/
       access: Anonymous
-    - match: ^/dashboard/snapshot/
+    - matchRoute: ^/dashboard/snapshot/
       access: Anonymous
-    - match: ^/api/snapshots/
+    - matchRoute: ^/api/snapshots/
       access: Anonymous
   sortOrder: 40
   backend:

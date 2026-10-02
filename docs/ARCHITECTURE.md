@@ -183,8 +183,8 @@ spec:
   displayName: string               # optional, defaults to metadata.name
   routing:
     pathPrefix: string               # e.g. /grafana/ — only variant for now
-  routes:                            # optional, default is Authenticated everywhere
-    - match: string                  # regex, evaluated against the request path
+  accessRules:                       # optional, default is Authenticated everywhere
+    - matchRoute: string             # regex, evaluated against the request path
                                       # with pathPrefix stripped; first match wins
       access: Authenticated|Anonymous
   sortOrder: int
@@ -200,11 +200,11 @@ status:
                                       # False + reason NamespaceNotAllowed if
                                       # this namespace doesn't match the
                                       # Portal's allowedAppNamespaces (Decision 8);
-                                      # Unknown + reason RouteMatchInvalid if a
-                                      # routes[].match regex fails to compile
+                                      # Unknown + reason RouteMatchInvalid if an
+                                      # accessRules[].matchRoute regex fails to compile
 ```
 
-`routes` (issue #11) lets specific sub-paths of an app opt out of the
+`accessRules` (issue #11) lets specific sub-paths of an app opt out of the
 portal's login gate - e.g. Grafana's Snapshot feature
 (`/grafana/dashboard/snapshot/...`), explicitly documented by Grafana as
 publicly viewable without login (verified against a real Grafana in
@@ -212,19 +212,20 @@ publicly viewable without login (verified against a real Grafana in
 was tried too, but its page calls an additional, not-meant-to-be-public
 App Platform API and errors - left as an exercise for a Grafana version/
 config where that's resolved). Evaluated per request against the path
-with this AppRegistration's own `pathPrefix` already stripped (so `match`
-patterns never repeat it), in declaration order, first match wins; no
-match (or an empty/unset list) keeps today's behavior (`Authenticated`).
-An `Anonymous` match bypasses `oidcauth.Handler.Middleware` entirely for
-that request (no session cookie needed, no login redirect) - and, since
-there's no logged-in user to vouch for, `AppAuthentication`'s
-trusted-header injection is silently skipped for it too, rather than
-erroring. Everything else (no path rewriting, WebSocket passthrough, and
-the X-Frame-Options/CSP `frame-ancestors` rewriting from issue #1) still
-applies exactly as normal, since both access levels are served by the
-*same* `internal/appproxy` handler instance - only the auth gate and
-header injection are conditional, not the whole handler (see "Reverse
-proxy" below and `internal/routeaccess`).
+with this AppRegistration's own `pathPrefix` already stripped (so
+`matchRoute` patterns never repeat it), in declaration order, first match
+wins; no match (or an empty/unset list) keeps today's behavior
+(`Authenticated`). An `Anonymous` match bypasses
+`oidcauth.Handler.Middleware` entirely for that request (no session
+cookie needed, no login redirect) - and, since there's no logged-in user
+to vouch for, `AppAuthentication`'s trusted-header injection is silently
+skipped for it too, rather than erroring. Everything else (no path
+rewriting, WebSocket passthrough, and the X-Frame-Options/CSP
+`frame-ancestors` rewriting from issue #1) still applies exactly as
+normal, since both access levels are served by the *same*
+`internal/appproxy` handler instance - only the auth gate and header
+injection are conditional, not the whole handler (see "Reverse proxy"
+below and `internal/routeaccess`).
 
 ## Cross-cutting design decisions
 

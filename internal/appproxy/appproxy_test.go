@@ -154,7 +154,7 @@ func TestNewAllowsAnonymousRouteWithoutHeaderOrError(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, grafanaPrefix+"public-dashboards/abc", nil)
-	req = req.WithContext(routeaccess.WithAccess(req.Context(), portalconfig.RouteAccessAnonymous))
+	req = req.WithContext(routeaccess.WithAccess(req.Context(), portalconfig.AccessRuleAccessAnonymous))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

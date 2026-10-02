@@ -137,16 +137,16 @@ func newMux(cfg *portalconfig.Config, auth *oidcauth.Handler) (*http.ServeMux, e
 }
 
 // newAppHandler wraps proxy so each request is first matched against
-// app.Routes (issue #11): an Anonymous match bypasses auth.Middleware
+// app.AccessRules (issue #11): an Anonymous match bypasses auth.Middleware
 // entirely (no login redirect, no session cookie needed); everything else
 // (including no match at all) goes through auth.Middleware exactly as
 // before. The access decision is attached to the request context
 // (routeaccess.WithAccess) so appproxy can tell a deliberately Anonymous
 // request apart from a bug.
 func newAppHandler(app portalconfig.AppConfig, auth *oidcauth.Handler, proxy http.Handler) (http.Handler, error) {
-	rules, err := routeaccess.Compile(app.Routes)
+	rules, err := routeaccess.Compile(app.AccessRules)
 	if err != nil {
-		return nil, fmt.Errorf("compiling routes: %w", err)
+		return nil, fmt.Errorf("compiling accessRules: %w", err)
 	}
 
 	authenticated := auth.Middleware(proxy)
@@ -157,7 +157,7 @@ func newAppHandler(app portalconfig.AppConfig, auth *oidcauth.Handler, proxy htt
 		access := rules.For(relPath)
 		r = r.WithContext(routeaccess.WithAccess(r.Context(), access))
 
-		if access == portalconfig.RouteAccessAnonymous {
+		if access == portalconfig.AccessRuleAccessAnonymous {
 			proxy.ServeHTTP(w, r)
 			return
 		}

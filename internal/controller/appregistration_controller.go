@@ -106,7 +106,7 @@ func (r *AppRegistrationReconciler) reconcile(ctx xhdl.Context, req ctrl.Request
 		resolvedRefs.Message = fmt.Sprintf("Service %s not found", serviceRefString(appReg.Namespace, appReg.Spec.Backend.Service))
 	}
 
-	accepted := evaluateAccepted(appReg.Namespace, appReg.GetGeneration(), portal, portalFound, appReg.Spec.Routes)
+	accepted := evaluateAccepted(appReg.Namespace, appReg.GetGeneration(), portal, portalFound, appReg.Spec.AccessRules)
 
 	changed := apimeta.SetStatusCondition(&appReg.Status.Conditions, resolvedRefs)
 	changed = apimeta.SetStatusCondition(&appReg.Status.Conditions, accepted) || changed
@@ -129,11 +129,11 @@ func (r *AppRegistrationReconciler) getBackendService(ctx xhdl.Context, ownNames
 // evaluateAccepted implements docs/ARCHITECTURE.md Decision 8: the Portal's
 // allowedAppNamespaces regex is anchored before matching (Go's regexp is
 // unanchored by default), and an invalid pattern yields Unknown rather than
-// silently allowing or rejecting everything. Also validates routes[].match
-// (issue #11) compiles - unanchored, unlike allowedAppNamespaces, since
-// route patterns are meant to be partial (e.g. a "^/public-dashboards/"
-// prefix with no trailing "$").
-func evaluateAccepted(namespace string, generation int64, portal *panoptikumv1alpha1.Portal, portalFound bool, routes []panoptikumv1alpha1.AppRegistrationRoute) metav1.Condition {
+// silently allowing or rejecting everything. Also validates
+// accessRules[].matchRoute (issue #11) compiles - unanchored, unlike
+// allowedAppNamespaces, since route patterns are meant to be partial (e.g.
+// a "^/public-dashboards/" prefix with no trailing "$").
+func evaluateAccepted(namespace string, generation int64, portal *panoptikumv1alpha1.Portal, portalFound bool, accessRules []panoptikumv1alpha1.AppRegistrationAccessRule) metav1.Condition {
 	accepted := metav1.Condition{
 		Type:               panoptikumv1alpha1.ConditionTypeAccepted,
 		ObservedGeneration: generation,
@@ -146,10 +146,10 @@ func evaluateAccepted(namespace string, generation int64, portal *panoptikumv1al
 		return accepted
 	}
 
-	if i, err := firstInvalidRoute(routes); err != nil {
+	if i, err := firstInvalidAccessRule(accessRules); err != nil {
 		accepted.Status = metav1.ConditionUnknown
 		accepted.Reason = "RouteMatchInvalid"
-		accepted.Message = fmt.Sprintf("routes[%d].match %q does not compile: %s", i, routes[i].Match, err)
+		accepted.Message = fmt.Sprintf("accessRules[%d].matchRoute %q does not compile: %s", i, accessRules[i].MatchRoute, err)
 		return accepted
 	}
 
@@ -175,12 +175,12 @@ func evaluateAccepted(namespace string, generation int64, portal *panoptikumv1al
 	return accepted
 }
 
-// firstInvalidRoute returns the index and compile error of the first route
-// whose match pattern fails to compile, or err=nil if every route (or an
-// empty/nil list) compiles.
-func firstInvalidRoute(routes []panoptikumv1alpha1.AppRegistrationRoute) (index int, err error) {
-	for i, route := range routes {
-		if _, err := regexp.Compile(route.Match); err != nil {
+// firstInvalidAccessRule returns the index and compile error of the first
+// access rule whose matchRoute pattern fails to compile, or err=nil if
+// every rule (or an empty/nil list) compiles.
+func firstInvalidAccessRule(accessRules []panoptikumv1alpha1.AppRegistrationAccessRule) (index int, err error) {
+	for i, rule := range accessRules {
+		if _, err := regexp.Compile(rule.MatchRoute); err != nil {
 			return i, err
 		}
 	}
