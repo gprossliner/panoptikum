@@ -14,6 +14,8 @@ natively in Go instead of depending on nginx + oauth2-proxy. See
 > **Status:** early releases. CRD shapes are implemented and usable, but
 > not yet guaranteed stable API - expect breaking changes before v1.
 
+![Portal navigation bar with app tabs and user menu](docs/images/portal-nav.png)
+
 ## Getting Started
 
 Minimum steps to get a working portal with one app (here: Grafana,
