@@ -741,6 +741,53 @@ behind `(*oidcauth.Handler).Middleware` like every other proxied route.
 6. ~~Portal shell UI.~~ Done.
 7. Wire into `main.go`; manual smoke test against a real cluster.
 
+## Portal and Customization
+
+**Status: design, not yet implemented** — tracked as issue #6 ("Facelift
+the portal UI"). The shell (`internal/portalshell/shell.html`) is
+currently minimal/functional: `Logout` is a standalone link, the credit
+link isn't visually de-emphasized much, the empty/no-app-selected state is
+static, and there's a single hardcoded light color scheme. This section
+records the design for closing those gaps, confined entirely to the shell
+template — no CRD/API changes needed.
+
+- **User menu**: replace the standalone `Logout` link with a native
+  `<details>/<summary>` disclosure (username as the summary, `Logout`
+  as an item inside it) for its built-in keyboard/accessibility
+  semantics, plus a few lines of JS to close it on an outside click
+  (the shell already relies on JS elsewhere — e.g. the iframe/hash
+  routing — so avoiding it isn't a goal here; it's only worth using the
+  native element where it saves real code, not as an end in itself).
+- **Credits**: move the "Built with panoptikum" link out of the header
+  entirely; show it only on the start/welcome state (e.g. centered),
+  so it's invisible once any app is open rather than a small persistent
+  header item.
+- **Start/empty state**: the `<h1>` title becomes a link back to the
+  welcome state (clears the URL hash); a CSS-only pointer/arrow animation
+  draws the eye toward the nav when no app is selected; the "Select an
+  app above." copy only makes sense when at least one app is registered,
+  so it needs a distinct message (e.g. "No apps registered yet") for the
+  zero-`Apps` case — the only piece requiring a `portalshell.go` change
+  (passing whether `Apps` is empty into the template data).
+- **Light/dark theme**: switch `color-scheme: light` to
+  `color-scheme: light dark` and drive the shell chrome's palette via the
+  CSS `light-dark()` function (reads `prefers-color-scheme` implicitly;
+  acceptable baseline for a self-hosted internal tool is evergreen
+  browsers ≥2024 — Chrome 123+/Firefox 120+/Safari 17.5+). No manual
+  light/auto/dark override toggle: besides not being asked for, adding
+  one invites the reading that it also switches the *embedded apps'* own
+  theming, which panoptikum deliberately never touches (see Scope below)
+  — automatic-only sidesteps that ambiguity entirely.
+  `PortalCustomization.backgroundColor`/`accentColor` (`api/v1alpha1/portal_types.go`)
+  stay single flat fields — **no breaking CRD change**: when an admin sets
+  one, it applies identically in both color schemes (an explicit
+  override opts that one property out of auto-theming); anything left
+  unset keeps following the OS/browser preference automatically.
+  **Scope is the shell chrome only** (header/nav/start page) — embedded
+  app iframes are each their own origin's UI with their own theming
+  (e.g. Grafana's own dark-mode toggle) and are deliberately left
+  untouched.
+
 ## Smoke Testing
 
 **Status: implemented and manually validated end to end (2026-09-30)** —

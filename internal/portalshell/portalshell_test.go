@@ -60,7 +60,7 @@ func TestServeHTTPRendersUserAppsAndCustomization(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		"<title>Acme Portal</title>",
-		`<strong id="user">alice</strong>`,
+		`<summary id="user">alice</summary>`,
 		`src="https://example.com/logo.png"`,
 		`href="https://example.com/favicon.ico"`,
 		`href="#/grafana" data-app="grafana">Grafana</a>`,
@@ -68,6 +68,7 @@ func TestServeHTTPRendersUserAppsAndCustomization(t *testing.T) {
 		`href="#/headlamp" data-app="headlamp">headlamp</a>`,
 		`"grafana":{"base":"/grafana/"}`,
 		`"headlamp":{"base":"/headlamp/"}`,
+		"Portal build with panoptikum",
 		`href="https://github.com/gprossliner/panoptikum"`,
 	} {
 		if !strings.Contains(body, want) {
@@ -95,7 +96,10 @@ func TestServeHTTPDefaultsDisplayNameAndOmitsCustomization(t *testing.T) {
 	if strings.Contains(body, `<img class="logo"`) {
 		t.Error("rendered body has a logo <img> despite no Customization set")
 	}
-	if !strings.Contains(body, `<strong id="user"></strong>`) {
+	if !strings.Contains(body, `<summary id="user"></summary>`) {
 		t.Errorf("rendered body should show an empty user when none is in context\nfull body:\n%s", body)
+	}
+	if !strings.Contains(body, "No apps registered yet.") {
+		t.Errorf("rendered body should show the zero-apps empty state\nfull body:\n%s", body)
 	}
 }
