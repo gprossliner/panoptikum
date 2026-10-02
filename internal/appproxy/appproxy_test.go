@@ -27,6 +27,7 @@ import (
 
 	"github.com/gprossliner/panoptikum/internal/oidcauth"
 	"github.com/gprossliner/panoptikum/internal/portalconfig"
+	"github.com/gprossliner/panoptikum/internal/routeaccess"
 )
 
 const grafanaPrefix = "/grafana/"
@@ -122,6 +123,46 @@ func TestNewRefusesToProxyWithoutAuthenticatedUser(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+}
+
+// TestNewAllowsAnonymousRouteWithoutHeaderOrError confirms issue #11: a
+// request explicitly routed Anonymous (no authenticated user, by design)
+// is proxied normally rather than refused, and gets no trusted header -
+// there's no user to vouch for.
+func TestNewAllowsAnonymousRouteWithoutHeaderOrError(t *testing.T) {
+	var sawHeader bool
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawHeader = r.Header.Get("X-Forwarded-User") != ""
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	app := portalconfig.AppConfig{
+		PathPrefix: grafanaPrefix,
+		BackendURL: backend.URL,
+		Authorization: portalconfig.AppAuthorization{
+			Type: portalconfig.AppAuthorizationTypeProxyAuthentication,
+			ProxyAuthentication: &portalconfig.ProxyAuthenticationConfig{
+				Headers: map[string]string{"X-Forwarded-User": "$user"},
+			},
+		},
+	}
+	handler, err := New(app)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, grafanaPrefix+"public-dashboards/abc", nil)
+	req = req.WithContext(routeaccess.WithAccess(req.Context(), portalconfig.RouteAccessAnonymous))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if sawHeader {
+		t.Error("backend saw a trusted header on an Anonymous-routed request, want none")
 	}
 }
 
