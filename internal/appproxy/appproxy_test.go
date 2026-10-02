@@ -34,6 +34,8 @@ const grafanaPrefix = "/grafana/"
 
 const userHeaderTemplate = "$user"
 
+const trustedUserHeader = "X-Forwarded-User"
+
 func TestNewForwardsRequestURIUnmodified(t *testing.T) {
 	var gotPath, gotQuery string
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +65,7 @@ func TestNewForwardsRequestURIUnmodified(t *testing.T) {
 func TestNewInjectsTrustedHeaderAndStripsClientSupplied(t *testing.T) {
 	var gotHeader string
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotHeader = r.Header.Get("X-Forwarded-User")
+		gotHeader = r.Header.Get(trustedUserHeader)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer backend.Close()
@@ -74,7 +76,7 @@ func TestNewInjectsTrustedHeaderAndStripsClientSupplied(t *testing.T) {
 		Authorization: portalconfig.AppAuthorization{
 			Type: portalconfig.AppAuthorizationTypeProxyAuthentication,
 			ProxyAuthentication: &portalconfig.ProxyAuthenticationConfig{
-				Headers: map[string]string{"X-Forwarded-User": userHeaderTemplate},
+				Headers: map[string]string{trustedUserHeader: userHeaderTemplate},
 			},
 		},
 	}
@@ -84,7 +86,7 @@ func TestNewInjectsTrustedHeaderAndStripsClientSupplied(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, grafanaPrefix, nil)
-	req.Header.Set("X-Forwarded-User", "attacker")
+	req.Header.Set(trustedUserHeader, "attacker")
 	req = req.WithContext(oidcauth.WithUser(req.Context(), "alice"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -110,7 +112,7 @@ func TestNewRefusesToProxyWithoutAuthenticatedUser(t *testing.T) {
 		Authorization: portalconfig.AppAuthorization{
 			Type: portalconfig.AppAuthorizationTypeProxyAuthentication,
 			ProxyAuthentication: &portalconfig.ProxyAuthenticationConfig{
-				Headers: map[string]string{"X-Forwarded-User": userHeaderTemplate},
+				Headers: map[string]string{trustedUserHeader: userHeaderTemplate},
 			},
 		},
 	}
@@ -135,7 +137,7 @@ func TestNewRefusesToProxyWithoutAuthenticatedUser(t *testing.T) {
 func TestNewAllowsAnonymousRouteWithoutHeaderOrError(t *testing.T) {
 	var sawHeader bool
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sawHeader = r.Header.Get("X-Forwarded-User") != ""
+		sawHeader = r.Header.Get(trustedUserHeader) != ""
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer backend.Close()
@@ -146,7 +148,7 @@ func TestNewAllowsAnonymousRouteWithoutHeaderOrError(t *testing.T) {
 		Authorization: portalconfig.AppAuthorization{
 			Type: portalconfig.AppAuthorizationTypeProxyAuthentication,
 			ProxyAuthentication: &portalconfig.ProxyAuthenticationConfig{
-				Headers: map[string]string{"X-Forwarded-User": userHeaderTemplate},
+				Headers: map[string]string{trustedUserHeader: userHeaderTemplate},
 			},
 		},
 	}
