@@ -38,6 +38,7 @@ import (
 
 	panoptikumv1alpha1 "github.com/gprossliner/panoptikum/api/v1alpha1"
 	"github.com/gprossliner/panoptikum/internal/controller"
+	"github.com/gprossliner/panoptikum/internal/version"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -234,7 +235,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("Starting manager")
+	setupLog.Info("Starting manager", "version", version.Version)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)

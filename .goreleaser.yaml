@@ -24,7 +24,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w
+      - -s -w -X github.com/gprossliner/panoptikum/internal/version.Version={{.Version}}
 
   - id: server
     main: ./cmd/server
@@ -37,7 +37,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w
+      - -s -w -X github.com/gprossliner/panoptikum/internal/version.Version={{.Version}}
 
 dockers_v2:
   - ids: [operator, server]
@@ -65,12 +65,15 @@ changelog:
   use: github
   sort: asc
   groups:
+    - title: Breaking Changes
+      regexp: '(?i)^.*BREAKING CHANGE:.*$'
+      order: 0
     - title: Features
       regexp: '^.*?feat(\(.+\))??!?:.+$'
-      order: 0
+      order: 1
     - title: Bug fixes
       regexp: '^.*?fix(\(.+\))??!?:.+$'
-      order: 1
+      order: 2
     - title: Others
       order: 999
   filters:

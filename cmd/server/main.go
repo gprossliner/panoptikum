@@ -42,6 +42,7 @@ import (
 	"github.com/gprossliner/panoptikum/internal/portalconfig"
 	"github.com/gprossliner/panoptikum/internal/portalshell"
 	"github.com/gprossliner/panoptikum/internal/routeaccess"
+	"github.com/gprossliner/panoptikum/internal/version"
 )
 
 func main() {
@@ -61,6 +62,7 @@ func main() {
 	// Status/application logs go to stderr; access logs (see withAccessLog)
 	// go to stdout, so the two streams can be collected/filtered separately.
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	logger.Info("Starting portal-server", "version", version.Version)
 
 	var cfg *portalconfig.Config
 	var auth *oidcauth.Handler
