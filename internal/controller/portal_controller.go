@@ -226,6 +226,13 @@ func appRegistrationRefs(bound []panoptikumv1alpha1.AppRegistration) []panoptiku
 func (r *PortalReconciler) buildConfig(ctx xhdl.Context, portal *panoptikumv1alpha1.Portal, userAuth *panoptikumv1alpha1.UserAuthentication, bound []panoptikumv1alpha1.AppRegistration) (portalconfig.Config, bool) {
 	log := logf.FromContext(ctx)
 
+	if userAuth.Spec.OIDC == nil {
+		// Stale object from before issue #14 (see
+		// UserAuthenticationReconciler.reconcile) - nothing to build yet.
+		log.Info("UserAuthentication has no oidc config", "name", userAuth.Name, "namespace", userAuth.Namespace)
+		return portalconfig.Config{}, false
+	}
+
 	clientSecret, ok := r.getSecretValue(ctx, userAuth.Namespace, userAuth.Spec.OIDC.ClientSecretRef)
 	if !ok {
 		return portalconfig.Config{}, false
@@ -298,10 +305,29 @@ func buildAppConfig(ctx xhdl.Context, cl client.Client, ar panoptikumv1alpha1.Ap
 	return portalconfig.AppConfig{
 		DisplayName:   ar.Spec.DisplayName,
 		PathPrefix:    normalizePathPrefix(ar.Spec.Routing.PathPrefix),
+		AccessRules:   buildAccessRuleConfigs(ar.Spec.AccessRules),
 		SortOrder:     ar.Spec.SortOrder,
 		BackendURL:    backendURL,
 		Authorization: authorization,
 	}, true
+}
+
+// buildAccessRuleConfigs mirrors ar.Spec.AccessRules into portalconfig's
+// own, API-independent AccessRuleConfig (Decision 4) - MatchRoute is
+// assumed to already compile, validated separately at reconcile time (see
+// evaluateAccepted in appregistration_controller.go).
+func buildAccessRuleConfigs(accessRules []panoptikumv1alpha1.AppRegistrationAccessRule) []portalconfig.AccessRuleConfig {
+	if len(accessRules) == 0 {
+		return nil
+	}
+	cfgs := make([]portalconfig.AccessRuleConfig, len(accessRules))
+	for i, rule := range accessRules {
+		cfgs[i] = portalconfig.AccessRuleConfig{
+			MatchRoute: rule.MatchRoute,
+			Access:     portalconfig.AccessRuleAccess(rule.Access),
+		}
+	}
+	return cfgs
 }
 
 // normalizePathPrefix adds back the trailing slash AppRegistrationRouting.PathPrefix

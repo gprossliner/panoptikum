@@ -94,7 +94,7 @@ var _ = Describe("AppRegistration Controller", func() {
 			Spec: panoptikumv1alpha1.AppRegistrationSpec{
 				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: portalName},
 				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: appAuthName},
-				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "/app/"},
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: testAppPathPrefix},
 				Backend: panoptikumv1alpha1.AppRegistrationBackend{
 					Service: panoptikumv1alpha1.ServiceBackend{Name: serviceName, Port: 80},
 				},
@@ -212,5 +212,35 @@ var _ = Describe("AppRegistration Controller", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, appReg)).NotTo(Succeed())
+	})
+
+	It("sets Accepted=Unknown when an accessRules[].matchRoute regex fails to compile (issue #11)", func() {
+		createPortal("ar-portal-8", ".+")
+		createAppAuthentication("ar-appauth-8")
+		createService("ar-service-8")
+
+		appReg := &panoptikumv1alpha1.AppRegistration{
+			ObjectMeta: metav1.ObjectMeta{Name: "ar-8", Namespace: namespace},
+			Spec: panoptikumv1alpha1.AppRegistrationSpec{
+				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-portal-8"},
+				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-appauth-8"},
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: testAppPathPrefix},
+				AccessRules: []panoptikumv1alpha1.AppRegistrationAccessRule{
+					{MatchRoute: "(", Access: panoptikumv1alpha1.AppRegistrationAccessRuleAccessAnonymous},
+				},
+				Backend: panoptikumv1alpha1.AppRegistrationBackend{
+					Service: panoptikumv1alpha1.ServiceBackend{Name: "ar-service-8", Port: 80},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, appReg)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, appReg)).To(Succeed()) })
+
+		updated := reconcileAppRegistration("ar-8")
+
+		accepted := apimeta.FindStatusCondition(updated.Status.Conditions, panoptikumv1alpha1.ConditionTypeAccepted)
+		Expect(accepted).NotTo(BeNil())
+		Expect(accepted.Status).To(Equal(metav1.ConditionUnknown))
+		Expect(accepted.Reason).To(Equal("RouteMatchInvalid"))
 	})
 })

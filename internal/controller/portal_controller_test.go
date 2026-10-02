@@ -39,6 +39,10 @@ import (
 // setting a condition that's normally computed by another reconciler.
 const testConditionReason = "Test"
 
+// testAppPathPrefix is a shared AppRegistration pathPrefix fixture, reused
+// across controller tests (goconst wants it as one constant).
+const testAppPathPrefix = "/app/"
+
 var _ = Describe("Portal Controller", func() {
 	const namespace = "default"
 
@@ -127,7 +131,7 @@ var _ = Describe("Portal Controller", func() {
 			Spec: panoptikumv1alpha1.AppRegistrationSpec{
 				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: portalName},
 				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "some-app-authentication"},
-				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "/app/"},
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: testAppPathPrefix},
 				Backend: panoptikumv1alpha1.AppRegistrationBackend{
 					Service: panoptikumv1alpha1.ServiceBackend{Name: "some-service", Port: 80},
 				},

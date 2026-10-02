@@ -67,6 +67,14 @@ spec:
               value: username
             - name: GF_AUTH_PROXY_AUTO_SIGN_UP
               value: "true"
+            # Portal is already the access boundary (only alice/bob can log
+            # in at all via nanoidp) - give every auto-signed-up user full
+            # Grafana access (Admin) rather than Grafana's own default
+            # (Viewer), same as the predecessor management-portal's
+            # grafana.tf. Viewer can't create "Share externally" public
+            # dashboards, needed to exercise issue #11's anonymous routes.
+            - name: GF_USERS_AUTO_ASSIGN_ORG_ROLE
+              value: Admin
             - name: GF_AUTH_DISABLE_LOGIN_FORM
               value: "true"
             # No GF_SECURITY_ALLOW_EMBEDDING needed: the portal's reverse

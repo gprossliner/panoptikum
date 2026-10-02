@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,6 +41,7 @@ import (
 	"github.com/gprossliner/panoptikum/internal/oidcauth"
 	"github.com/gprossliner/panoptikum/internal/portalconfig"
 	"github.com/gprossliner/panoptikum/internal/portalshell"
+	"github.com/gprossliner/panoptikum/internal/routeaccess"
 )
 
 func main() {
@@ -118,7 +120,11 @@ func newMux(cfg *portalconfig.Config, auth *oidcauth.Handler) (*http.ServeMux, e
 		if err != nil {
 			return nil, fmt.Errorf("app %q: %w", app.PathPrefix, err)
 		}
-		mux.Handle(app.PathPrefix, auth.Middleware(proxy))
+		handler, err := newAppHandler(app, auth, proxy)
+		if err != nil {
+			return nil, fmt.Errorf("app %q: %w", app.PathPrefix, err)
+		}
+		mux.Handle(app.PathPrefix, handler)
 	}
 
 	shell, err := portalshell.New(cfg)
@@ -128,6 +134,35 @@ func newMux(cfg *portalconfig.Config, auth *oidcauth.Handler) (*http.ServeMux, e
 	mux.Handle("/", auth.Middleware(shell))
 
 	return mux, nil
+}
+
+// newAppHandler wraps proxy so each request is first matched against
+// app.AccessRules (issue #11): an Anonymous match bypasses auth.Middleware
+// entirely (no login redirect, no session cookie needed); everything else
+// (including no match at all) goes through auth.Middleware exactly as
+// before. The access decision is attached to the request context
+// (routeaccess.WithAccess) so appproxy can tell a deliberately Anonymous
+// request apart from a bug.
+func newAppHandler(app portalconfig.AppConfig, auth *oidcauth.Handler, proxy http.Handler) (http.Handler, error) {
+	rules, err := routeaccess.Compile(app.AccessRules)
+	if err != nil {
+		return nil, fmt.Errorf("compiling accessRules: %w", err)
+	}
+
+	authenticated := auth.Middleware(proxy)
+	base := strings.TrimSuffix(app.PathPrefix, "/")
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		relPath := strings.TrimPrefix(r.URL.Path, base)
+		access := rules.For(relPath)
+		r = r.WithContext(routeaccess.WithAccess(r.Context(), access))
+
+		if access == portalconfig.AccessRuleAccessAnonymous {
+			proxy.ServeHTTP(w, r)
+			return
+		}
+		authenticated.ServeHTTP(w, r)
+	}), nil
 }
 
 func loadConfig(ctx xhdl.Context, path string) *portalconfig.Config {

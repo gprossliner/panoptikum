@@ -170,6 +170,13 @@ spec:
     replicas: 3
 ```
 
+The operator and portal-server are also independently resilient to each
+other: the portal-server never talks to the Kubernetes API (Decision 4),
+so if the operator is down or crash-looping, already-running
+portal-server pods keep serving traffic unaffected, using the last
+successfully-written config `Secret` - they just won't pick up any new
+`AppRegistration`/`Portal` changes until the operator recovers.
+
 ## Known Apps
 
 Helm values known to work well behind panoptikum for a few common apps -
@@ -201,6 +208,12 @@ ingress:
     auto_sign_up: true
   # no security.allow_embedding needed - the portal rewrites Grafana's
   # default X-Frame-Options: deny to SAMEORIGIN automatically
+  users:
+    # Grafana's own default for auto-signed-up proxy users is Viewer -
+    # override to Admin since the portal's own OIDC gate is already the
+    # access boundary (only your IdP's users can log in at all), not
+    # Grafana's. Viewer can't create "Share externally" public dashboards.
+    auto_assign_org_role: Admin
 ```
 
 Matching `AppAuthentication`:
@@ -380,6 +393,17 @@ spec:
   displayName: Grafana
   routing:
     pathPrefix: /grafana/
+  accessRules:
+    # Optional: opt specific sub-paths out of the login gate (default is
+    # "everything requires login"). Example below allows Grafana's
+    # Snapshot feature (Dashboard > Share > Snapshot), which Grafana
+    # itself documents as viewable without authentication.
+    - matchRoute: ^/public/
+      access: Anonymous
+    - matchRoute: ^/dashboard/snapshot/
+      access: Anonymous
+    - matchRoute: ^/api/snapshots/
+      access: Anonymous
   sortOrder: 40
   backend:
     service:

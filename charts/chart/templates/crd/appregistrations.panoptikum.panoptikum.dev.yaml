@@ -42,6 +42,35 @@ spec:
           spec:
             description: spec defines the desired state of AppRegistration
             properties:
+              accessRules:
+                description: |-
+                  accessRules overrides the default Authenticated access requirement
+                  for matching sub-paths (e.g. an app's own public/anonymous routes).
+                  Evaluated in order; the first match wins. No match (or an
+                  empty/unset list) means Authenticated.
+                items:
+                  description: |-
+                    AppRegistrationAccessRule matches a sub-path within an app to an access
+                    requirement, overriding the default of requiring a logged-in user.
+                  properties:
+                    access:
+                      description: access is applied when matchRoute matches.
+                      enum:
+                      - Authenticated
+                      - Anonymous
+                      type: string
+                    matchRoute:
+                      description: |-
+                        matchRoute is a regular expression evaluated against the request
+                        path with this AppRegistration's routing.pathPrefix stripped (e.g.
+                        "^/public-dashboards/" matches "/grafana/public-dashboards/..." when
+                        pathPrefix is "/grafana/").
+                      type: string
+                  required:
+                  - access
+                  - matchRoute
+                  type: object
+                type: array
               appAuthenticationRef:
                 description: |-
                   appAuthenticationRef references how the portal vouches for the

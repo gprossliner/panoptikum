@@ -84,6 +84,10 @@ type AppConfig struct {
 	PathPrefix  string `json:"pathPrefix"`
 	SortOrder   int32  `json:"sortOrder,omitempty"`
 
+	// AccessRules overrides the default Authenticated access requirement
+	// for matching sub-paths (see AccessRuleConfig).
+	AccessRules []AccessRuleConfig `json:"accessRules,omitempty"`
+
 	// BackendURL is the fully resolved backend address (e.g.
 	// "http://grafana.management-portal.svc.cluster.local:80"), computed
 	// by the operator so the portal-server never needs in-cluster DNS
@@ -93,6 +97,31 @@ type AppConfig struct {
 	// Authorization selects how the portal-server vouches for the logged-in
 	// user to this app's backend.
 	Authorization AppAuthorization `json:"authorization"`
+}
+
+// AccessRuleAccess mirrors AppRegistrationAccessRuleAccess (see
+// docs/ARCHITECTURE.md "AppRegistration") but is kept as its own type here,
+// free of the CRD API's dependencies (Decision 4).
+type AccessRuleAccess string
+
+const (
+	// AccessRuleAccessAuthenticated requires a valid session, redirecting
+	// to login otherwise. Default when no rule matches or AccessRules is
+	// empty.
+	AccessRuleAccessAuthenticated AccessRuleAccess = "Authenticated"
+
+	// AccessRuleAccessAnonymous allows the request through without a
+	// session - no trusted header is injected either, since there's no
+	// logged-in user to vouch for.
+	AccessRuleAccessAnonymous AccessRuleAccess = "Anonymous"
+)
+
+// AccessRuleConfig mirrors one AppRegistration.spec.accessRules[] entry.
+// MatchRoute is already known to compile - validated at reconcile time
+// (see docs/ARCHITECTURE.md "Reconciliation design"), not here.
+type AccessRuleConfig struct {
+	MatchRoute string           `json:"matchRoute"`
+	Access     AccessRuleAccess `json:"access"`
 }
 
 // AppAuthorizationType selects the mechanism used to vouch for the
