@@ -51,14 +51,16 @@ disabled `Ingress`, trusted-header auth).
    metadata:
      name: keycloak
    spec:
-     issuerURL: https://keycloak.example.com/realms/example
-     clientID: management-portal
-     clientSecretRef:
-       name: keycloak-client
-       key: client-secret
+     type: OIDC
      cookieSecretRef:
        name: keycloak-client
        key: cookie-secret
+     oidc:
+       issuerURL: https://keycloak.example.com/realms/example
+       clientID: management-portal
+       clientSecretRef:
+         name: keycloak-client
+         key: client-secret
    ---
    apiVersion: panoptikum.panoptikum.dev/v1alpha1
    kind: Portal
@@ -117,9 +119,9 @@ Okta, ...) when creating the client:
 | Setting              | Value                                                     |
 |-----------------------|------------------------------------------------------------|
 | Redirect URI          | `https://panoptikum.example.com/_panoptikum/oidc-callback` |
-| Client ID             | Whatever you set as `UserAuthentication.spec.clientID`     |
+| Client ID             | Whatever you set as `UserAuthentication.spec.oidc.clientID` |
 | Client secret         | Stored in the `Secret` referenced by `clientSecretRef`      |
-| Scopes                | `openid profile email` (the default; override via `spec.scopes`) |
+| Scopes                | `openid profile email` (the default; override via `spec.oidc.scopes`) |
 
 Two distinct secrets are involved, both read from `Secret`s you create
 yourself (never generated or stored by the operator) - easy to conflate
@@ -321,14 +323,16 @@ metadata:
   name: keycloak
   namespace: management-portal
 spec:
-  issuerURL: https://keycloak.example.com/realms/example
-  clientID: management-portal
-  clientSecretRef:
-    name: keycloak-client
-    key: client-secret
+  type: OIDC
   cookieSecretRef:
     name: keycloak-client
     key: cookie-secret
+  oidc:
+    issuerURL: https://keycloak.example.com/realms/example
+    clientID: management-portal
+    clientSecretRef:
+      name: keycloak-client
+      key: client-secret
 ---
 apiVersion: panoptikum.panoptikum.dev/v1alpha1
 kind: Portal

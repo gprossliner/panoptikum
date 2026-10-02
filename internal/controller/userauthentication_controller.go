@@ -55,7 +55,7 @@ const (
 // +kubebuilder:rbac:groups=panoptikum.panoptikum.dev,resources=userauthentications/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
-// Reconcile resolves UserAuthentication.spec.clientSecretRef/cookieSecretRef
+// Reconcile resolves UserAuthentication.spec.oidc.clientSecretRef/cookieSecretRef
 // and sets the Ready condition accordingly.
 func (r *UserAuthenticationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	err := xhdl.RunContext(ctx, func(xc xhdl.Context) {
