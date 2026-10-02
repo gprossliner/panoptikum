@@ -32,6 +32,8 @@ import (
 
 const grafanaPrefix = "/grafana/"
 
+const userHeaderTemplate = "$user"
+
 func TestNewForwardsRequestURIUnmodified(t *testing.T) {
 	var gotPath, gotQuery string
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +74,7 @@ func TestNewInjectsTrustedHeaderAndStripsClientSupplied(t *testing.T) {
 		Authorization: portalconfig.AppAuthorization{
 			Type: portalconfig.AppAuthorizationTypeProxyAuthentication,
 			ProxyAuthentication: &portalconfig.ProxyAuthenticationConfig{
-				Headers: map[string]string{"X-Forwarded-User": "$user"},
+				Headers: map[string]string{"X-Forwarded-User": userHeaderTemplate},
 			},
 		},
 	}
@@ -108,7 +110,7 @@ func TestNewRefusesToProxyWithoutAuthenticatedUser(t *testing.T) {
 		Authorization: portalconfig.AppAuthorization{
 			Type: portalconfig.AppAuthorizationTypeProxyAuthentication,
 			ProxyAuthentication: &portalconfig.ProxyAuthenticationConfig{
-				Headers: map[string]string{"X-Forwarded-User": "$user"},
+				Headers: map[string]string{"X-Forwarded-User": userHeaderTemplate},
 			},
 		},
 	}
@@ -144,7 +146,7 @@ func TestNewAllowsAnonymousRouteWithoutHeaderOrError(t *testing.T) {
 		Authorization: portalconfig.AppAuthorization{
 			Type: portalconfig.AppAuthorizationTypeProxyAuthentication,
 			ProxyAuthentication: &portalconfig.ProxyAuthenticationConfig{
-				Headers: map[string]string{"X-Forwarded-User": "$user"},
+				Headers: map[string]string{"X-Forwarded-User": userHeaderTemplate},
 			},
 		},
 	}

@@ -94,7 +94,7 @@ var _ = Describe("AppRegistration Controller", func() {
 			Spec: panoptikumv1alpha1.AppRegistrationSpec{
 				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: portalName},
 				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: appAuthName},
-				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "/app/"},
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: testAppPathPrefix},
 				Backend: panoptikumv1alpha1.AppRegistrationBackend{
 					Service: panoptikumv1alpha1.ServiceBackend{Name: serviceName, Port: 80},
 				},
@@ -224,7 +224,7 @@ var _ = Describe("AppRegistration Controller", func() {
 			Spec: panoptikumv1alpha1.AppRegistrationSpec{
 				PortalRef:            panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-portal-8"},
 				AppAuthenticationRef: panoptikumv1alpha1.NamespacedObjectReference{Name: "ar-appauth-8"},
-				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: "/app/"},
+				Routing:              panoptikumv1alpha1.AppRegistrationRouting{PathPrefix: testAppPathPrefix},
 				AccessRules: []panoptikumv1alpha1.AppRegistrationAccessRule{
 					{MatchRoute: "(", Access: panoptikumv1alpha1.AppRegistrationAccessRuleAccessAnonymous},
 				},
