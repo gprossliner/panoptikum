@@ -88,6 +88,20 @@ spec:
   displayName: Grafana
   routing:
     pathPrefix: /grafana/
+  routes:
+    # issue #11: Grafana's Snapshot feature (Dashboard > Share > Snapshot)
+    # is explicitly documented as publicly viewable without login - the
+    # page itself, the API that fetches the snapshot's (baked-in,
+    # point-in-time) data, and the static JS/CSS assets needed to render
+    # it. (Public dashboards' "Share externally" was tried too, but its
+    # page makes an additional call to Grafana's newer App Platform API
+    # that isn't meant to be anonymous - see issue discussion.)
+    - match: ^/public/
+      access: Anonymous
+    - match: ^/dashboard/snapshot/
+      access: Anonymous
+    - match: ^/api/snapshots/
+      access: Anonymous
   sortOrder: 20
   backend:
     service:

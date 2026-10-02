@@ -208,6 +208,12 @@ ingress:
     auto_sign_up: true
   # no security.allow_embedding needed - the portal rewrites Grafana's
   # default X-Frame-Options: deny to SAMEORIGIN automatically
+  users:
+    # Grafana's own default for auto-signed-up proxy users is Viewer -
+    # override to Admin since the portal's own OIDC gate is already the
+    # access boundary (only your IdP's users can log in at all), not
+    # Grafana's. Viewer can't create "Share externally" public dashboards.
+    auto_assign_org_role: Admin
 ```
 
 Matching `AppAuthentication`:
@@ -387,6 +393,17 @@ spec:
   displayName: Grafana
   routing:
     pathPrefix: /grafana/
+  routes:
+    # Optional: opt specific sub-paths out of the login gate (default is
+    # "everything requires login"). Example below allows Grafana's
+    # Snapshot feature (Dashboard > Share > Snapshot), which Grafana
+    # itself documents as viewable without authentication.
+    - match: ^/public/
+      access: Anonymous
+    - match: ^/dashboard/snapshot/
+      access: Anonymous
+    - match: ^/api/snapshots/
+      access: Anonymous
   sortOrder: 40
   backend:
     service:

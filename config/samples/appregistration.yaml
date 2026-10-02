@@ -14,14 +14,19 @@ spec:
   routing:
     pathPrefix: /sample/
   routes:
-    # Example (issue #11): allow anonymous access to a backend's own public
-    # routes (e.g. Grafana's "Share externally" dashboards - the page itself
-    # at /public-dashboards/ and the API it calls at /api/public-dashboards/).
-    # Adjust the patterns to the app's actual public paths, or remove this
-    # whole list entirely for "everything requires login" (the default).
-    - match: ^/public-dashboards/
+    # Example (issue #11, verified against a real Grafana (grafana/grafana-oss:13.0.2) in
+    # test/smoke-test/): allow anonymous access to a backend's own public
+    # routes - Grafana's Snapshot feature (Dashboard > Share > Snapshot) is
+    # explicitly documented as publicly viewable without login: the page
+    # itself, the API that fetches the snapshot's data, and the static
+    # JS/CSS assets needed to render it. Adjust the patterns to the app's
+    # actual public paths, or remove this whole list entirely for
+    # "everything requires login" (the default).
+    - match: ^/public/
       access: Anonymous
-    - match: ^/api/public-dashboards/
+    - match: ^/dashboard/snapshot/
+      access: Anonymous
+    - match: ^/api/snapshots/
       access: Anonymous
   sortOrder: 10
   backend:
