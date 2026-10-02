@@ -40,6 +40,7 @@ import (
 
 	"github.com/gprossliner/panoptikum/internal/oidcauth"
 	"github.com/gprossliner/panoptikum/internal/portalconfig"
+	"github.com/gprossliner/panoptikum/internal/routeaccess"
 )
 
 const (
@@ -76,10 +77,12 @@ func New(app portalconfig.AppConfig) (http.Handler, error) {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if len(headers) > 0 {
-			if _, ok := oidcauth.UserFromContext(r.Context()); !ok {
-				// Middleware always sets this; its absence means this
-				// handler was mounted without auth - refuse rather than
-				// silently proxy with an empty trusted header.
+			if _, ok := oidcauth.UserFromContext(r.Context()); !ok && !routeaccess.IsAnonymous(r.Context()) {
+				// Middleware always sets this for an Authenticated route;
+				// its absence here means a bug, not a deliberately
+				// Anonymous route (issue #11, which never gets a trusted
+				// header - there's no user to vouch for) - refuse rather
+				// than silently proxy with an empty trusted header.
 				http.Error(w, "no authenticated user in request context", http.StatusInternalServerError)
 				return
 			}
@@ -93,12 +96,18 @@ func New(app portalconfig.AppConfig) (http.Handler, error) {
 // the exact bug class (a naive proxy that only adds a header without first
 // removing the inbound one) that would reopen the auth-bypass hole this
 // design exists to close (see docs/ARCHITECTURE.md Security considerations).
+// A no-op if there's no authenticated user (an Anonymous route, issue #11 -
+// there's no user to vouch for, so nothing is injected rather than an
+// empty "$user").
 func injectHeaders(pr *httputil.ProxyRequest, headers map[string]string) {
 	if len(headers) == 0 {
 		return
 	}
 
-	user, _ := oidcauth.UserFromContext(pr.In.Context())
+	user, ok := oidcauth.UserFromContext(pr.In.Context())
+	if !ok {
+		return
+	}
 	for name, template := range headers {
 		pr.Out.Header.Del(name)
 		pr.Out.Header.Set(name, strings.ReplaceAll(template, "$user", user))

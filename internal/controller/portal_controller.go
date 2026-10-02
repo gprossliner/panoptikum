@@ -298,10 +298,29 @@ func buildAppConfig(ctx xhdl.Context, cl client.Client, ar panoptikumv1alpha1.Ap
 	return portalconfig.AppConfig{
 		DisplayName:   ar.Spec.DisplayName,
 		PathPrefix:    normalizePathPrefix(ar.Spec.Routing.PathPrefix),
+		Routes:        buildRouteConfigs(ar.Spec.Routes),
 		SortOrder:     ar.Spec.SortOrder,
 		BackendURL:    backendURL,
 		Authorization: authorization,
 	}, true
+}
+
+// buildRouteConfigs mirrors ar.Spec.Routes into portalconfig's own,
+// API-independent RouteConfig (Decision 4) - Match is assumed to already
+// compile, validated separately at reconcile time (see evaluateAccepted in
+// appregistration_controller.go).
+func buildRouteConfigs(routes []panoptikumv1alpha1.AppRegistrationRoute) []portalconfig.RouteConfig {
+	if len(routes) == 0 {
+		return nil
+	}
+	cfgs := make([]portalconfig.RouteConfig, len(routes))
+	for i, route := range routes {
+		cfgs[i] = portalconfig.RouteConfig{
+			Match:  route.Match,
+			Access: portalconfig.RouteAccess(route.Access),
+		}
+	}
+	return cfgs
 }
 
 // normalizePathPrefix adds back the trailing slash AppRegistrationRouting.PathPrefix

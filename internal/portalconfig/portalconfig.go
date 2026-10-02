@@ -84,6 +84,10 @@ type AppConfig struct {
 	PathPrefix  string `json:"pathPrefix"`
 	SortOrder   int32  `json:"sortOrder,omitempty"`
 
+	// Routes overrides the default Authenticated access requirement for
+	// matching sub-paths (see RouteConfig).
+	Routes []RouteConfig `json:"routes,omitempty"`
+
 	// BackendURL is the fully resolved backend address (e.g.
 	// "http://grafana.management-portal.svc.cluster.local:80"), computed
 	// by the operator so the portal-server never needs in-cluster DNS
@@ -93,6 +97,30 @@ type AppConfig struct {
 	// Authorization selects how the portal-server vouches for the logged-in
 	// user to this app's backend.
 	Authorization AppAuthorization `json:"authorization"`
+}
+
+// RouteAccess mirrors AppRegistrationRouteAccess (see
+// docs/ARCHITECTURE.md "AppRegistration") but is kept as its own type here,
+// free of the CRD API's dependencies (Decision 4).
+type RouteAccess string
+
+const (
+	// RouteAccessAuthenticated requires a valid session, redirecting to
+	// login otherwise. Default when no route matches or Routes is empty.
+	RouteAccessAuthenticated RouteAccess = "Authenticated"
+
+	// RouteAccessAnonymous allows the request through without a session -
+	// no trusted header is injected either, since there's no logged-in
+	// user to vouch for.
+	RouteAccessAnonymous RouteAccess = "Anonymous"
+)
+
+// RouteConfig mirrors one AppRegistration.spec.routes[] entry. Match is
+// already known to compile - validated at reconcile time (see
+// docs/ARCHITECTURE.md "Reconciliation design"), not here.
+type RouteConfig struct {
+	Match  string      `json:"match"`
+	Access RouteAccess `json:"access"`
 }
 
 // AppAuthorizationType selects the mechanism used to vouch for the
